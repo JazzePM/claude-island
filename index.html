@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:">
 <title>Claude Island</title>
 <style>
   :root {
@@ -127,9 +127,65 @@
   .row.empty .pct, .row.empty .name { color: var(--muted); }
 
   .msg { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* ---------- lossad ö ---------- */
+  #island.detached:not(.open) { cursor: grab; }
+  body.dragging, body.dragging * { cursor: grabbing !important; }
+
+  /* ---------- projektdocka ---------- */
+  #stage { position: relative; }
+  #dock {
+    position: absolute; top: 0; left: calc(100% + 8px);
+    height: 36px; padding: 0 9px; gap: 9px;
+    display: flex; align-items: center;
+    background: var(--bg); border-radius: 18px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 12px 32px rgba(0,0,0,.35);
+    transform-origin: left center;
+    opacity: 0; pointer-events: none;
+    will-change: transform, opacity, filter;
+  }
+  #dock.live { pointer-events: auto; }
+  .proj {
+    position: relative; width: 24px; height: 24px; flex: none;
+    border: 0; padding: 0; background: none; cursor: pointer;
+    transition: transform .3s cubic-bezier(.3,1.5,.5,1);
+  }
+  .proj:hover { transform: scale(1.16); }
+  .proj:active { transform: scale(.9); transition-duration: .1s; }
+  .proj .in { display: block; width: 24px; height: 24px; will-change: transform, opacity; }
+  .proj img, .proj .mono {
+    width: 24px; height: 24px; border-radius: 7px; display: block; object-fit: cover;
+  }
+  .proj .mono {
+    display: grid; place-items: center;
+    font-size: 10px; font-weight: 700; color: #fff; letter-spacing: -.02em;
+  }
+  .proj .badge {
+    position: absolute; right: -4px; bottom: -4px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: #2c2c2e; box-shadow: 0 0 0 2px var(--bg);
+    display: grid; place-items: center; color: var(--fg);
+  }
+  .proj .badge svg { width: 7px; height: 7px; }
+  .proj.launching .in { animation: launch .6s cubic-bezier(.3,1.4,.5,1); }
+  @keyframes launch { 30% { transform: scale(.8); } 60% { transform: scale(1.15) translateY(-2px); } }
+
+  #dock-label {
+    position: absolute; top: 44px;
+    transform: translateX(-50%) translateY(-4px);
+    background: var(--bg); color: var(--fg);
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+    padding: 4px 10px; border-radius: 10px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07);
+    opacity: 0; pointer-events: none;
+    transition: opacity .15s ease, transform .3s cubic-bezier(.3,1.4,.5,1), left .25s cubic-bezier(.3,1.2,.5,1);
+  }
+  #dock-label.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #dock-label span { color: var(--muted); font-weight: 500; }
 </style>
 </head>
 <body>
+  <div id="stage">
   <div id="island" role="button" aria-expanded="false" aria-label="Claude-förbrukning">
     <div class="compact" id="compact">
       <div class="side">
@@ -165,12 +221,17 @@
       <div class="rows" id="rows"><p class="msg">Hämtar förbrukning…</p></div>
     </div>
   </div>
+  <div id="dock" aria-label="Projekt"></div>
+  <div id="dock-label"></div>
+  </div>
 
 <script>
   const $ = (id) => document.getElementById(id);
   const islandEl = $('island');
   const compactEl = $('compact');
   const expandedEl = $('expanded');
+  const dockEl = $('dock');
+  const labelEl = $('dock-label');
   let state = null;
 
   /* ================= fjäderfysik =================
@@ -183,6 +244,8 @@
 
   function spring(v) { return { x: v, v: 0, to: v, p: SPRING_OPEN }; }
   const W = spring(C_W), H = spring(C_H);
+  const D = spring(0); // dockan: 0 = gömd, 1 = framme
+  D.p = { k: 320, c: 26 };
   let isOpen = false, hovering = false, raf = 0, lastT = 0;
 
   function stepSpring(s, dt) {
@@ -197,10 +260,10 @@
     lastT = t;
     // Små delsteg ger stabil fysik oavsett bildfrekvens.
     const n = Math.max(1, Math.ceil(dt / (1 / 240)));
-    for (let i = 0; i < n; i++) { stepSpring(W, dt / n); stepSpring(H, dt / n); }
+    for (let i = 0; i < n; i++) { stepSpring(W, dt / n); stepSpring(H, dt / n); stepSpring(D, dt / n); }
     paint();
-    if (settled(W) && settled(H)) {
-      W.x = W.to; H.x = H.to; W.v = H.v = 0;
+    if (settled(W) && settled(H) && settled(D)) {
+      W.x = W.to; H.x = H.to; D.x = D.to; W.v = H.v = D.v = 0;
       paint();
       raf = 0;
     } else {
@@ -230,6 +293,17 @@
     expandedEl.style.opacity = eo;
     expandedEl.style.filter = eo < 1 ? `blur(${(1 - eo) * 8}px)` : '';
     expandedEl.style.transform = `translateX(-50%) translateY(${(1 - eo) * -6}px) scale(${0.94 + eo * 0.06})`;
+
+    // Dockan glider ut från öns kant; ikonerna kommer en i taget.
+    const d = D.x;
+    dockEl.style.opacity = clamp01(d * 1.6);
+    dockEl.style.filter = d < 1 ? `blur(${(1 - clamp01(d)) * 6}px)` : '';
+    dockEl.style.transform = `translateX(${(1 - d) * -30}px) scale(${0.45 + 0.55 * d})`;
+    dockEl.querySelectorAll('.in').forEach((el, i) => {
+      const q = clamp01((d - i * 0.07) * 2.2);
+      el.style.opacity = q;
+      el.style.transform = `scale(${0.55 + 0.45 * q})`;
+    });
   }
 
   function setTargets() {
@@ -419,10 +493,179 @@
     window.bridge.setTray([1, 2].map((scale) => ({ scale, url: drawTray(text, color, scale) })), tooltip);
   }
 
+  /* ================= projektdocka ================= */
+  const KIND = {
+    web: { label: 'webb', svg: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>' },
+    app: { label: 'app', svg: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18h2"/>' },
+    desktop: { label: 'skrivbordsapp', svg: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>' },
+    node: { label: 'node', svg: '<path d="M9 4C7 4 7 6 7 8s-1 4-3 4c2 0 3 2 3 4s0 4 2 4M15 4c2 0 2 2 2 4s1 4 3 4c-2 0-3 2-3 4s0 4-2 4"/>' },
+  };
+  let projects = [];
+  let dockShown = false, hoverIsland = false, hoverDock = false;
+  let showTimer = 0, hideTimer = 0;
+  let drag = null, justDragged = false, detached = false;
+
+  function hashHue(s) {
+    let h = 0;
+    for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return h % 360;
+  }
+  function initials(name) {
+    const w = name.split(/\s+/).filter(Boolean);
+    return w.length > 1 ? (w[0][0] + w[1][0]).toUpperCase() : name.slice(0, 2).replace(/^./, (c) => c.toUpperCase());
+  }
+
+  function buildDock() {
+    dockEl.textContent = '';
+    // Typmärket visas bara när projekt delar förled (t.ex. LILO App / LILO Portal),
+    // annars är ikonerna rena.
+    const shown = projects.slice(0, 8);
+    const prefix = (p) => p.name.split(/\s+/)[0].toLowerCase();
+    const count = {};
+    for (const p of shown) count[prefix(p)] = (count[prefix(p)] || 0) + 1;
+    for (const p of shown) {
+      const btn = document.createElement('button');
+      btn.className = 'proj';
+      btn.setAttribute('aria-label', p.name);
+      const inner = document.createElement('span');
+      inner.className = 'in';
+      if (p.icon) {
+        const img = document.createElement('img');
+        img.src = p.icon;
+        img.alt = '';
+        img.draggable = false;
+        inner.appendChild(img);
+      } else {
+        const mono = document.createElement('span');
+        mono.className = 'mono';
+        const hue = hashHue(p.name);
+        mono.style.background = `linear-gradient(135deg, hsl(${hue} 65% 56%), hsl(${(hue + 35) % 360} 70% 42%))`;
+        mono.textContent = initials(p.name);
+        inner.appendChild(mono);
+      }
+      if (p.kind && KIND[p.kind] && count[prefix(p)] > 1) {
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${KIND[p.kind].svg}</svg>`;
+        inner.appendChild(b);
+      }
+      btn.appendChild(inner);
+      btn.addEventListener('mouseenter', () => showLabel(btn, p));
+      btn.addEventListener('mouseleave', hideLabel);
+      btn.addEventListener('click', (e) => { e.stopPropagation(); launch(btn, p); });
+      dockEl.appendChild(btn);
+    }
+    paint();
+  }
+
+  function showLabel(btn, p, text) {
+    labelEl.textContent = text || p.name;
+    if (!text && p.kind && KIND[p.kind]) {
+      const s = document.createElement('span');
+      s.textContent = ' · ' + KIND[p.kind].label;
+      labelEl.appendChild(s);
+    }
+    const stage = $('stage').getBoundingClientRect();
+    const r = btn.getBoundingClientRect();
+    labelEl.style.left = (r.left + r.width / 2 - stage.left) + 'px';
+    labelEl.classList.add('show');
+  }
+  function hideLabel() { labelEl.classList.remove('show'); }
+
+  async function launch(btn, p) {
+    btn.classList.remove('launching');
+    void btn.offsetWidth;
+    btn.classList.add('launching');
+    showLabel(btn, p, `Öppnar ${p.name}…`);
+    const ok = await window.bridge.openProject(p.path);
+    if (!ok) showLabel(btn, p, 'Kunde inte öppna VS Code');
+    setTimeout(() => { hoverDock = hoverIsland = false; hideDock(true); updateHover(); }, ok ? 700 : 1800);
+  }
+
+  async function loadProjects() {
+    try {
+      const list = await window.bridge.projects();
+      const key = JSON.stringify(list.map((p) => [p.path, p.kind, !!p.icon]));
+      if (key !== loadProjects.key) { loadProjects.key = key; projects = list; buildDock(); }
+    } catch {}
+  }
+
+  function showDock() {
+    if (dockShown || isOpen || drag || !projects.length) return;
+    dockShown = true;
+    dockEl.classList.add('live');
+    D.to = 1;
+    kick();
+  }
+  function hideDock(now) {
+    clearTimeout(showTimer);
+    if (!dockShown) return;
+    dockShown = false;
+    dockEl.classList.remove('live');
+    hideLabel();
+    D.to = 0;
+    kick();
+    if (now) window.bridge.setIgnore(true);
+  }
+
+  // Gemensam hover för ön och dockan: dockan kommer fram efter en kort paus
+  // (så den inte blinkar till när musen bara passerar), och dröjer kvar när
+  // musen glider över mellanrummet mellan ön och dockan.
+  function updateHover() {
+    const any = hoverIsland || hoverDock;
+    window.bridge.setIgnore(!any && !drag);
+    hovering = hoverIsland;
+    if (!isOpen) setTargets();
+    clearTimeout(hideTimer);
+    if (any) {
+      if (!dockShown && !isOpen) {
+        clearTimeout(showTimer);
+        showTimer = setTimeout(() => { if (hoverIsland || hoverDock) showDock(); }, 220);
+      }
+    } else {
+      clearTimeout(showTimer);
+      hideTimer = setTimeout(() => { if (!hoverIsland && !hoverDock) hideDock(); }, 380);
+    }
+  }
+  dockEl.addEventListener('mouseenter', () => { hoverDock = true; updateHover(); });
+  dockEl.addEventListener('mouseleave', () => { hoverDock = false; hideLabel(); updateHover(); });
+
+  loadProjects();
+  setInterval(loadProjects, 60 * 1000);
+
+  /* ================= lossad ö: dra för att flytta ================= */
+  function setDetachedUI(on) {
+    detached = on;
+    islandEl.classList.toggle('detached', on);
+  }
+  window.bridge.isDetached().then(setDetachedUI);
+  window.bridge.onDetached(setDetachedUI);
+
+  islandEl.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !detached || isOpen || e.target.closest('.icon-btn')) return;
+    drag = { x: e.screenX, y: e.screenY, moved: false };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag) return;
+    const dx = e.screenX - drag.x, dy = e.screenY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 4) return; // litet darr = klick, inte drag
+    if (!drag.moved) { drag.moved = true; document.body.classList.add('dragging'); hideDock(); }
+    drag.x = e.screenX; drag.y = e.screenY;
+    window.bridge.dragBy(dx, dy);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!drag) return;
+    if (drag.moved) { justDragged = true; window.bridge.dragEnd(); }
+    drag = null;
+    document.body.classList.remove('dragging');
+    updateHover();
+  });
+
   /* ================= interaktion ================= */
   function open() {
     if (isOpen) return;
     isOpen = true;
+    hideDock();
     islandEl.classList.add('open');
     islandEl.setAttribute('aria-expanded', 'true');
     setTargets();
@@ -438,19 +681,12 @@
 
   islandEl.addEventListener('click', (e) => {
     if (e.target.closest('.icon-btn')) return;
+    if (justDragged) { justDragged = false; return; }
     isOpen ? close() : open();
   });
   islandEl.addEventListener('contextmenu', (e) => { e.preventDefault(); window.bridge.menu(); });
-  islandEl.addEventListener('mouseenter', () => {
-    window.bridge.setIgnore(false);
-    hovering = true;
-    if (!isOpen) setTargets();
-  });
-  islandEl.addEventListener('mouseleave', () => {
-    window.bridge.setIgnore(true);
-    hovering = false;
-    if (!isOpen) setTargets();
-  });
+  islandEl.addEventListener('mouseenter', () => { hoverIsland = true; loadProjects(); updateHover(); });
+  islandEl.addEventListener('mouseleave', () => { hoverIsland = false; updateHover(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
   $('refresh').addEventListener('click', () => load(true));
@@ -466,7 +702,8 @@
 
   window.bridge.onUsage((p) => { state = p; render(); });
   window.bridge.onCollapse(() => {
-    hovering = false;
+    hovering = hoverIsland = hoverDock = false;
+    hideDock();
     close();
     if (!isOpen) setTargets();
   });
