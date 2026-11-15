@@ -128,6 +128,76 @@
 
   .msg { font-size: 12px; color: var(--muted); line-height: 1.5; }
 
+  /* ---------- aviseringar: banner ---------- */
+  .banner {
+    position: absolute; top: 0; left: 50%;
+    width: 360px; height: 52px;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 12px 0 11px;
+    opacity: 0; pointer-events: none;
+    will-change: opacity, transform, filter;
+  }
+  #island.bannering .banner { pointer-events: auto; }
+  .banner .b-icon, .banner .b-icon img, .banner .b-icon .mono {
+    width: 30px; height: 30px; border-radius: 8px; flex: none; display: block; object-fit: cover;
+  }
+  .banner .b-icon .mono { display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; }
+  .banner .b-txt { flex: 1; min-width: 0; }
+  .banner .b-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .banner .b-status { font-size: 12px; font-weight: 500; }
+  .banner .b-go {
+    font-size: 11px; font-weight: 600; color: var(--fg);
+    background: #1c1c1e; border-radius: 11px; padding: 5px 11px; flex: none;
+  }
+  .t-stop { color: var(--ok); }
+  .t-attention { color: var(--high); }
+
+  /* ---------- aviseringar: kompakt indikator ---------- */
+  #c-pending { display: none; position: relative; width: 16px; height: 16px; flex: none; }
+  #c-pending img, #c-pending .mono { width: 16px; height: 16px; border-radius: 5px; display: block; object-fit: cover; }
+  #c-pending .mono { display: grid; place-items: center; font-size: 7px; font-weight: 700; color: #fff; }
+  #c-pending .pulse {
+    position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%;
+    box-shadow: 0 0 0 1.5px var(--bg);
+    animation: pulse 1.8s ease-out infinite;
+  }
+  #c-pending .pulse.stop { background: var(--ok); --ring: rgba(48,209,88,.55); }
+  #c-pending .pulse.attention { background: var(--high); --ring: rgba(255,159,10,.6); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 1.5px var(--ring); }
+    70%, 100% { box-shadow: 0 0 0 1.5px var(--bg), 0 0 0 7px transparent; }
+  }
+  #c-pcount { font-size: 10px; font-weight: 700; color: var(--muted); display: none; }
+  #island.has-pending #c-pending { display: block; }
+  #island.has-pending #c-pcount.show { display: inline; }
+  #island.has-pending .compact .spark { display: none; }
+
+  /* ---------- aviseringar: lista i utfälld vy ---------- */
+  .pend { display: flex; flex-direction: column; gap: 2px; margin: 0 -8px 4px; }
+  .pend-head { display: flex; align-items: baseline; padding: 0 8px; margin-bottom: 4px; }
+  .pend-head .group-label { margin: 0; }
+  .pend-clear {
+    margin-left: auto; font-size: 11px; color: var(--muted); cursor: pointer;
+    background: none; border: 0; font-family: inherit;
+  }
+  .pend-clear:hover { color: var(--fg); }
+  .pend-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px; border-radius: 10px; cursor: pointer; transition: background .12s;
+  }
+  .pend-row:hover { background: var(--track); }
+  .pend-row .tile, .pend-row .tile img, .pend-row .tile .mono {
+    width: 26px; height: 26px; border-radius: 7px; flex: none; display: block; object-fit: cover;
+  }
+  .pend-row .tile .mono { display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; }
+  .pend-row .txt { flex: 1; min-width: 0; }
+  .pend-row .nm { font-size: 13px; font-weight: 600; }
+  .pend-row .st { font-size: 11px; }
+  .pend-row .st span { color: var(--muted); }
+  .pend-row .go { color: var(--muted); font-size: 16px; }
+  .pend-sep { height: 1px; background: #1c1c1e; margin: 8px 0 6px; }
+
   /* ---------- lossad ö ---------- */
   #island.detached:not(.open) { cursor: grab; }
   body.dragging, body.dragging * { cursor: grabbing !important; }
@@ -246,6 +316,7 @@
   <div id="island" role="button" aria-expanded="false" aria-label="Claude-förbrukning">
     <div class="compact" id="compact">
       <div class="side">
+<span id="c-pending"></span><span id="c-pcount"></span>
         <svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><g stroke="var(--brand)" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/></g></svg>
         <span class="num" id="c-session">–</span>
         <span class="tag">5h</span>
@@ -260,6 +331,8 @@
         </svg>
       </div>
     </div>
+
+    <div class="banner" id="banner" role="button"></div>
 
     <div class="expanded" id="expanded">
       <header>
@@ -295,6 +368,7 @@
   const islandEl = $('island');
   const compactEl = $('compact');
   const expandedEl = $('expanded');
+  const bannerEl = $('banner');
   const dockEl = $('dock');
   const labelEl = $('dock-label');
   let state = null;
@@ -311,6 +385,10 @@
   const W = spring(C_W), H = spring(C_H);
   const D = spring(0); // dockan: 0 = gömd, 1 = framme
   D.p = { k: 320, c: 26 };
+  const O = spring(0); // utfälld: 0 = nej, 1 = ja
+  const B = spring(0); // banner (avisering): 0 = nej, 1 = ja
+  const SPRINGS = [W, H, D, O, B];
+  const BANNER_W = 360, BANNER_H = 52;
   let isOpen = false, hovering = false, raf = 0, lastT = 0;
 
   function stepSpring(s, dt) {
@@ -325,10 +403,10 @@
     lastT = t;
     // Små delsteg ger stabil fysik oavsett bildfrekvens.
     const n = Math.max(1, Math.ceil(dt / (1 / 240)));
-    for (let i = 0; i < n; i++) { stepSpring(W, dt / n); stepSpring(H, dt / n); stepSpring(D, dt / n); }
+    for (let i = 0; i < n; i++) for (const s of SPRINGS) stepSpring(s, dt / n);
     paint();
-    if (settled(W) && settled(H) && settled(D)) {
-      W.x = W.to; H.x = H.to; D.x = D.to; W.v = H.v = D.v = 0;
+    if (SPRINGS.every(settled)) {
+      for (const s of SPRINGS) { s.x = s.to; s.v = 0; }
       paint();
       raf = 0;
     } else {
@@ -341,17 +419,23 @@
 
   const clamp01 = (n) => Math.max(0, Math.min(1, n));
   function paint() {
-    // p: 0 = kompakt, 1 = helt öppen (kan översvänga lite).
-    const p = (W.x - C_W) / (O_W - C_W);
+    // p: 0 = kompakt, 1 = helt öppen (kan översvänga lite). b: banner.
+    const p = O.x, b = B.x;
     islandEl.style.width = W.x + 'px';
     islandEl.style.height = H.x + 'px';
-    islandEl.style.borderRadius = Math.min(H.x / 2, 18 + clamp01(p) * 14) + 'px';
+    islandEl.style.borderRadius = (H.x / 2 + (30 - H.x / 2) * clamp01(p)) + 'px';
 
     // Kompakt innehåll försvinner tidigt och suddas ut.
-    const co = clamp01(1 - p * 3.2);
+    const co = clamp01(1 - p * 3.2) * clamp01(1 - b * 2.5);
     compactEl.style.opacity = co;
     compactEl.style.filter = co < 1 ? `blur(${(1 - co) * 6}px)` : '';
-    compactEl.style.transform = `translateX(-50%) scale(${1 + clamp01(p) * 0.12})`;
+    compactEl.style.transform = `translateX(-50%) scale(${1 + clamp01(p) * 0.12 + clamp01(b) * 0.12})`;
+
+    // Bannern tonar in när ön har vuxit till bannerstorlek.
+    const bo = clamp01((b - 0.35) / 0.55) * clamp01(1 - p * 3);
+    bannerEl.style.opacity = bo;
+    bannerEl.style.filter = bo < 1 ? `blur(${(1 - bo) * 6}px)` : '';
+    bannerEl.style.transform = `translateX(-50%) scale(${0.92 + bo * 0.08})`;
 
     // Expanderat innehåll tonar in när ön nästan har nått sin storlek.
     const eo = clamp01((p - 0.35) / 0.55);
@@ -372,11 +456,18 @@
   }
 
   function setTargets() {
-    const params = isOpen ? SPRING_OPEN : hovering ? SPRING_HOVER : SPRING_CLOSE;
-    W.p = H.p = params;
+    let params = isOpen ? SPRING_OPEN : hovering ? SPRING_HOVER : SPRING_CLOSE;
+    if (!isOpen && bannerEv) params = SPRING_OPEN;
+    W.p = H.p = O.p = B.p = params;
+    islandEl.classList.toggle('bannering', !isOpen && !!bannerEv);
+    O.to = isOpen ? 1 : 0;
+    B.to = !isOpen && bannerEv ? 1 : 0;
     if (isOpen) {
       W.to = O_W;
       H.to = expandedEl.offsetHeight;
+    } else if (bannerEv) {
+      W.to = BANNER_W;
+      H.to = BANNER_H;
     } else {
       const s = hovering ? HOVER : 1;
       W.to = C_W * s;
@@ -509,6 +600,7 @@
       if (s.error && ERRORS[s.error]) html += `<p class="msg">${ERRORS[s.error]}</p>`;
       rows.innerHTML = html;
     }
+    if (pending.size && rows && view === 'usage') rows.prepend(pendingSection());
     updateTray(session, week, models);
 
     // Om innehållet ändrar höjd medan ön är öppen fjädrar den mjukt dit.
@@ -540,6 +632,14 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, s / 2, s / 2 + s * 0.04);
+    if (drawTray.dot) {
+      // Liten prick uppe till höger när något projekt väntar på dig.
+      const r = 3.6 * scale;
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(s - r, r, r + 1.2 * scale, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = drawTray.dot;
+      ctx.beginPath(); ctx.arc(s - r, r, r, 0, Math.PI * 2); ctx.fill();
+    }
     return c.toDataURL('image/png');
   }
   let lastTrayKey = '';
@@ -552,8 +652,10 @@
     if (sp != null && u) parts[0] += ` (återst. ${u.rel})`;
     parts.push(`Vecka ${fmtPct(pctOf(week))}`);
     for (const m of models) if (m.w) parts.push(`${m.name} ${fmtPct(pctOf(m.w))}`);
+    if (pending.size) parts.unshift(`${pending.size} väntar på dig`);
     const tooltip = ('Claude · ' + parts.join(' · ')).slice(0, 127);
-    const key = text + color + tooltip;
+    drawTray.dot = pendingColor();
+    const key = text + color + tooltip + drawTray.dot;
     if (key === lastTrayKey) return;
     lastTrayKey = key;
     window.bridge.setTray([1, 2].map((scale) => ({ scale, url: drawTray(text, color, scale) })), tooltip);
@@ -645,6 +747,152 @@
     dockEl.appendChild(edit);
     paint();
   }
+
+  /* ================= aviseringar från Claude Code ================= */
+  const pending = new Map(); // projektsökväg -> senaste händelse (stop / attention)
+  let bannerEv = null, bannerTimer = 0;
+  const STATUS = { stop: 'Klar – väntar på dig', attention: 'Behöver dig' };
+
+  function pendingColor() {
+    if (!pending.size) return null;
+    return [...pending.values()].some((e) => e.type === 'attention') ? '#ff9f0a' : '#30d158';
+  }
+  function ago(t) {
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return 'nyss';
+    if (m < 60) return `${m} min sedan`;
+    return `${Math.round(m / 60)} h sedan`;
+  }
+  const latestPending = () => [...pending.values()].sort((a, b) => b.at - a.at)[0];
+
+  function updatePendingUI() {
+    const n = pending.size;
+    islandEl.classList.toggle('has-pending', n > 0);
+    const slot = $('c-pending');
+    slot.textContent = '';
+    const latest = latestPending();
+    if (latest) {
+      slot.appendChild(makeTile(latest));
+      const dot = document.createElement('span');
+      dot.className = 'pulse ' + ([...pending.values()].some((e) => e.type === 'attention') ? 'attention' : 'stop');
+      slot.appendChild(dot);
+    }
+    const cnt = $('c-pcount');
+    cnt.textContent = n > 1 ? String(n) : '';
+    cnt.classList.toggle('show', n > 1);
+    render();
+  }
+
+  function showBanner(ev) {
+    if (isOpen) return; // utfälld: listan räcker
+    hideDock();
+    bannerEv = ev;
+    bannerEl.textContent = '';
+    const icon = document.createElement('span');
+    icon.className = 'b-icon';
+    icon.appendChild(makeTile(ev));
+    const txt = document.createElement('div');
+    txt.className = 'b-txt';
+    const nm = document.createElement('div');
+    nm.className = 'b-name';
+    nm.textContent = ev.name;
+    const st = document.createElement('div');
+    st.className = 'b-status t-' + ev.type;
+    st.textContent = STATUS[ev.type];
+    txt.append(nm, st);
+    const go = document.createElement('span');
+    go.className = 'b-go';
+    go.textContent = 'Öppna';
+    bannerEl.append(icon, txt, go);
+    setTargets();
+    clearTimeout(bannerTimer);
+    const settle = () => {
+      // Låt bannern stå kvar så länge musen är över den.
+      if (hoverIsland) { bannerTimer = setTimeout(settle, 1500); return; }
+      bannerEv = null;
+      setTargets();
+    };
+    bannerTimer = setTimeout(settle, 4500);
+  }
+  function endBanner() {
+    clearTimeout(bannerTimer);
+    if (!bannerEv) return;
+    bannerEv = null;
+    setTargets();
+  }
+
+  async function openPending(ev) {
+    pending.delete(ev.path);
+    endBanner();
+    updatePendingUI();
+    await window.bridge.openProject(ev.path);
+  }
+
+  function pendingSection() {
+    const wrap = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'pend-head';
+    const lbl = document.createElement('div');
+    lbl.className = 'group-label';
+    lbl.textContent = 'Väntar på dig';
+    const clr = document.createElement('button');
+    clr.className = 'pend-clear';
+    clr.textContent = 'Rensa';
+    clr.addEventListener('click', (e) => { e.stopPropagation(); pending.clear(); updatePendingUI(); });
+    head.append(lbl, clr);
+    const list = document.createElement('div');
+    list.className = 'pend';
+    for (const ev of [...pending.values()].sort((a, b) => b.at - a.at)) {
+      const row = document.createElement('div');
+      row.className = 'pend-row';
+      const tile = document.createElement('span');
+      tile.className = 'tile';
+      tile.appendChild(makeTile(ev));
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      const nm = document.createElement('div');
+      nm.className = 'nm';
+      nm.textContent = ev.name;
+      const st = document.createElement('div');
+      st.className = 'st t-' + ev.type;
+      st.textContent = STATUS[ev.type] + ' ';
+      const when = document.createElement('span');
+      when.textContent = '· ' + ago(ev.at);
+      st.appendChild(when);
+      txt.append(nm, st);
+      const go = document.createElement('span');
+      go.className = 'go';
+      go.textContent = '›';
+      row.append(tile, txt, go);
+      row.addEventListener('click', (e) => { e.stopPropagation(); openPending(ev); });
+      list.appendChild(row);
+    }
+    const sep = document.createElement('div');
+    sep.className = 'pend-sep';
+    wrap.append(head, list, sep);
+    return wrap;
+  }
+
+  window.bridge.onClaudeEvent((ev) => {
+    if (ev.type === 'prompt') {
+      // Du har svarat i det projektet: notisen behövs inte längre.
+      pending.delete(ev.path);
+      if (bannerEv && bannerEv.path === ev.path) endBanner();
+    } else {
+      pending.set(ev.path, ev);
+      showBanner(ev);
+    }
+    updatePendingUI();
+  });
+  window.bridge.onClaudeDismiss((p) => {
+    if (p === '*') pending.clear(); else pending.delete(p);
+    endBanner();
+    updatePendingUI();
+  });
+  bannerEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (bannerEv) openPending(bannerEv);
+  });
 
   /* ================= projektvy ================= */
   let view = 'usage'; // 'usage' | 'picker'
@@ -769,7 +1017,7 @@
   }
 
   function showDock() {
-    if (dockShown || isOpen || drag) return;
+    if (dockShown || isOpen || drag || bannerEv) return;
     dockShown = true;
     dockEl.classList.add('live');
     D.to = 1;
@@ -845,6 +1093,7 @@
     if (isOpen) return;
     isOpen = true;
     hideDock();
+    endBanner();
     islandEl.classList.add('open');
     islandEl.setAttribute('aria-expanded', 'true');
     setTargets();

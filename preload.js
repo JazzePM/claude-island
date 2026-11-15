@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('bridge', {
   onDetached: (cb) => ipcRenderer.on('detached', (_e, on) => cb(on)),
   onProjectsChanged: (cb) => ipcRenderer.on('projects-changed', () => cb()),
   setSelected: (paths) => ipcRenderer.invoke('set-selected', paths),
+  onClaudeEvent: (cb) => ipcRenderer.on('claude-event', (_e, ev) => cb(ev)),
+  onClaudeDismiss: (cb) => ipcRenderer.on('claude-dismiss', (_e, p) => cb(p)),
   onUsage: (cb) => ipcRenderer.on('usage', (_e, p) => cb(p)),
   onCollapse: (cb) => ipcRenderer.on('collapse', () => cb()),
 });

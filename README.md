@@ -6,6 +6,7 @@ En Dynamic Island-inspirerad statusbar för Windows som visar hur mycket av dina
 - **Klicka** för att fälla ut: session, veckogräns för alla modeller och per modell (t.ex. Fable), med nedräkning till när de återställs.
 - **Minimera till systemfältet:** ön försvinner och en liten färgad bricka med sessionsprocenten visas i systemfältet. Klicka på brickan för att visa ön igen.
 - **Projektdocka:** håll musen över ön så glider dina projekt (mappar i `~/Projects`) ut bredvid den. Klicka på ett projekt för att öppna det i VS Code med Claude Code igång.
+- **Aviseringar från Claude Code:** när Claude är klar eller behöver ditt tillstånd fjädrar ön ut med projektets ikon. Klicka för att hoppa till rätt VS Code-fönster. Se [Aviseringar](#aviseringar).
 - **Lossa ön:** högerklick → "Lossa ön" och dra den dit du vill, t.ex. bort från webbläsarens flikar.
 - **Startar med Windows** (kan stängas av i högerklicksmenyn).
 
@@ -24,6 +25,15 @@ Kräver att [Claude Code](https://claude.com/claude-code) är installerat och in
 - Ikonen hämtas från projektet (favicon, `icon.svg`, appikon m.m.), annars visas initialer.
 - Har två projekt samma förled (t.ex. *LILO App* och *LILO Portal*) visas ett litet märke för typen: webb, app eller skrivbordsapp.
 - Första gången ett projekt öppnas skapas `.vscode/tasks.json` som startar `claude` när mappen öppnas i VS Code. Filen läggs i `.git/info/exclude` och hamnar aldrig i repot.
+
+## Aviseringar
+
+Vid start lägger Claude Island in tre hooks i `~/.claude/settings.json` (`Stop`, `Notification`, `UserPromptSubmit`). Övriga inställningar i filen lämnas orörda.
+
+- Hookarna skickar hookens JSON med `curl` (inbyggt i Windows 10/11) till en mottagare på `127.0.0.1`, skyddad med en slumpad nyckel som bara finns lokalt. Det tar några hundradelar och kan aldrig blockera Claude: kör inte ön avslutas hooken direkt med kod 0.
+- **Stop** → *Klar – väntar på dig* (grön), **Notification** → *Behöver dig* (orange), **UserPromptSubmit** → notisen för projektet försvinner.
+- Minimerad ö: vanlig Windows-avisering och en prick på brickan i systemfältet.
+- Stäng av via högerklick → *Aviseringar från Claude Code* (hookarna tas då bort). Redan startade Claude Code-sessioner behöver startas om för att få hookarna.
 
 Rekommenderade VS Code-inställningar för att Claude Code ska öppnas som en flik i redigeringsytan:
 
