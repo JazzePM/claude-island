@@ -572,9 +572,22 @@ function isProjectInFocus(title, p) {
   return folder.length > 1 && title.toLowerCase().includes(folder);
 }
 
-async function handleNotify(type, cwd) {
+// Claude Codes Notification-händelse används både för "behöver ditt tillstånd"
+// och för påminnelsen "väntar fortfarande på ditt svar" efter en minut.
+// Påminnelsen täcks redan av Stop, så den ignoreras.
+function isIdleReminder(payload) {
+  const t = String(payload.notification_type || '').toLowerCase();
+  if (t) return t.includes('idle');
+  return /waiting for your input/i.test(String(payload.message || ''));
+}
+
+async function handleNotify(type, cwd, payload = {}) {
   if (!['stop', 'attention', 'prompt'].includes(type)) return;
   if (!settings.notify) return;
+  if (type === 'attention') {
+    log('[notify] notification', JSON.stringify({ t: payload.notification_type, m: String(payload.message || '').slice(0, 80) }));
+    if (isIdleReminder(payload)) { log('[notify] påminnelse, ignoreras'); return; }
+  }
   const p = projectForDir(cwd);
   if (!p) { log('[notify] okänd mapp', type, cwd); return; }
   if (type !== 'prompt') {
@@ -617,9 +630,9 @@ function startHookServer() {
         req.on('data', (c) => { if (body.length < 65536) body += c; });
         req.on('end', () => {
           res.writeHead(204); res.end();
-          let cwd = null;
-          try { cwd = JSON.parse(body.slice(body.indexOf('{'))).cwd || null; } catch (err) { log('[hooks] ogiltig JSON', err.message, body.slice(0, 120)); }
-          handleNotify(m[2], cwd).catch((err) => log('[hooks] fel', err && err.stack));
+          let cwd = null, payload = {};
+          try { payload = JSON.parse(body.slice(body.indexOf('{'))) || {}; cwd = payload.cwd || null; } catch (err) { log('[hooks] ogiltig JSON', err.message, body.slice(0, 120)); }
+          handleNotify(m[2], cwd, payload).catch((err) => log('[hooks] fel', err && err.stack));
         });
       });
       srv.once('error', () => tryPort(i + 1));
