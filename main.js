@@ -464,11 +464,80 @@ function projectForDir(dir) {
   };
 }
 
-function handleNotify(type, cwd) {
+/* ---------- vilket fönster är aktivt? ----------
+   En PowerShell-process startas en gång och svarar sedan på några ms med
+   titeln på förgrundsfönstret. Används för att inte avisera om projektet
+   du redan tittar på. */
+const FG_SCRIPT = [
+  'Add-Type @"',
+  'using System; using System.Runtime.InteropServices; using System.Text;',
+  'public static class Fg {',
+  '  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();',
+  '  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
+  '  public static string Title() { var sb = new StringBuilder(512); GetWindowText(GetForegroundWindow(), sb, 512); return sb.ToString(); }',
+  '}',
+  '"@',
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+  'while ($null -ne ($l = [Console]::In.ReadLine())) { [Console]::Out.WriteLine(([Fg]::Title() -replace "[\r\n]", " ")); [Console]::Out.Flush() }',
+].join('\n');
+
+let fgProc = null, fgBuf = '';
+const fgWaiting = [];
+function startFgHelper() {
+  if (process.platform !== 'win32' || fgProc) return;
+  try {
+    fgProc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', FG_SCRIPT], {
+      stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
+    });
+  } catch (err) { log('[fokus] kunde inte starta', err.message); fgProc = null; return; }
+  fgProc.stdout.setEncoding('utf8');
+  fgProc.stdout.on('data', (chunk) => {
+    fgBuf += chunk;
+    let i;
+    while ((i = fgBuf.indexOf('\n')) >= 0) {
+      const line = fgBuf.slice(0, i).replace(/\r$/, '');
+      fgBuf = fgBuf.slice(i + 1);
+      const w = fgWaiting.shift();
+      if (w) w(line);
+    }
+  });
+  fgProc.on('exit', () => {
+    fgProc = null;
+    while (fgWaiting.length) fgWaiting.shift()(null);
+  });
+}
+function foregroundTitle() {
+  if (!fgProc) startFgHelper();
+  if (!fgProc) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    fgWaiting.push(finish);
+    setTimeout(() => {
+      // Svarar inte hjälpen? Avisera hellre än att tappa notisen.
+      const i = fgWaiting.indexOf(finish);
+      if (i >= 0) fgWaiting.splice(i, 1);
+      finish(null);
+    }, 1500);
+    try { fgProc.stdin.write('\n'); } catch { finish(null); }
+  });
+}
+// Fönstertiteln innehåller mappnamnet, t.ex. "fil – LILO-Portal – Visual Studio Code".
+function isProjectInFocus(title, p) {
+  if (!title) return false;
+  const folder = path.basename(p.path).toLowerCase();
+  return folder.length > 1 && title.toLowerCase().includes(folder);
+}
+
+async function handleNotify(type, cwd) {
   if (!['stop', 'attention', 'prompt'].includes(type)) return;
   if (!settings.notify) return;
   const p = projectForDir(cwd);
   if (!p) { log('[notify] okänd mapp', type, cwd); return; }
+  if (type !== 'prompt') {
+    const title = await foregroundTitle();
+    if (isProjectInFocus(title, p)) { log('[notify] i fokus, tyst', type, p.path); return; }
+  }
   notifiedProjects.set(p.path, p);
   const ev = { type, path: p.path, name: p.name, icon: p.icon, kind: p.kind, at: Date.now() };
   log('[notify]', type, p.path);
@@ -507,7 +576,7 @@ function startHookServer() {
           res.writeHead(204); res.end();
           let cwd = null;
           try { cwd = JSON.parse(body.slice(body.indexOf('{'))).cwd || null; } catch (err) { log('[hooks] ogiltig JSON', err.message, body.slice(0, 120)); }
-          try { handleNotify(m[2], cwd); } catch (err) { log('[hooks] fel', err && err.stack); }
+          handleNotify(m[2], cwd).catch((err) => log('[hooks] fel', err && err.stack));
         });
       });
       srv.once('error', () => tryPort(i + 1));
@@ -606,10 +675,12 @@ if (!app.requestSingleInstanceLock() || isNotifyCall) {
     createWindow();
     createTray();
     startHookServer().then(syncClaudeHooks);
+    startFgHelper();
     setInterval(() => push(false), POLL_MS);
   });
   app.on('second-instance', (_e, argv) => {
     if (!argv.includes('--notify')) restore(); // gamla --notify-anrop ignoreras
   });
   app.on('window-all-closed', () => app.quit());
+  app.on('will-quit', () => { try { fgProc && fgProc.kill(); } catch {} });
 }

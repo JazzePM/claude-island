@@ -33,6 +33,7 @@ Vid start lägger Claude Island in tre hooks i `~/.claude/settings.json` (`Stop`
 - Hookarna skickar hookens JSON med `curl` (inbyggt i Windows 10/11) till en mottagare på `127.0.0.1`, skyddad med en slumpad nyckel som bara finns lokalt. Det tar några hundradelar och kan aldrig blockera Claude: kör inte ön avslutas hooken direkt med kod 0.
 - **Stop** → *Klar – väntar på dig* (grön), **Notification** → *Behöver dig* (orange), **UserPromptSubmit** → notisen för projektet försvinner.
 - Minimerad ö: vanlig Windows-avisering och en prick på brickan i systemfältet.
+- Ingen avisering om projektets fönster redan är aktivt (fönstertiteln innehåller mappnamnet, t.ex. VS Code-fönstret för projektet).
 - Stäng av via högerklick → *Aviseringar från Claude Code* (hookarna tas då bort). Redan startade Claude Code-sessioner behöver startas om för att få hookarna.
 
 Rekommenderade VS Code-inställningar för att Claude Code ska öppnas som en flik i redigeringsytan:
