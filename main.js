@@ -36,7 +36,7 @@ let tray = null;
 
 /* ---------- sparade inställningar (t.ex. om ön är minimerad) ---------- */
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'settings.json');
-let settings = { minimized: false, autostartSet: false, detached: false, pos: null, projectsRoot: null, selected: null, notify: true, hookToken: null, hookPort: null };
+let settings = { minimized: false, autostartSet: false, detached: false, pos: null, projectsRoot: null, selected: null, notify: true, hookToken: null, hookPort: null, displayId: null };
 function loadSettings() {
   try { settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_PATH(), 'utf8')) }; } catch {}
 }
@@ -122,10 +122,50 @@ function placeWindow() {
       return;
     }
   }
-  const d = screen.getPrimaryDisplay();
+  const d = targetDisplay();
   const x = Math.round(d.bounds.x + (d.bounds.width - WIN_W) / 2);
   const y = d.bounds.y + 6;
   win.setBounds({ x, y, width: WIN_W, height: WIN_H });
+}
+
+/* ---------- flera skärmar ---------- */
+// Vald skärm om den finns kvar, annars huvudskärmen.
+function targetDisplay() {
+  return screen.getAllDisplays().find((x) => x.id === settings.displayId) || screen.getPrimaryDisplay();
+}
+
+// Skärmar sorterade vänster till höger, med läsbara namn.
+function displayItems() {
+  const primaryId = screen.getPrimaryDisplay().id;
+  let list = screen.getAllDisplays();
+  // Två skärmar ovanpå varandra (överlappar i sidled)? Då heter de Övre/Nedre.
+  const [p, q] = list;
+  const stacked = list.length === 2 &&
+    Math.min(p.bounds.x + p.bounds.width, q.bounds.x + q.bounds.width) - Math.max(p.bounds.x, q.bounds.x) > 0;
+  list = list.sort((a, b) => stacked ? a.bounds.y - b.bounds.y : a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
+  const current = targetDisplay().id;
+  return list.map((d, i) => {
+    const names = stacked ? ['Övre', 'Nedre'] : ['Vänster', 'Höger'];
+    const pos = list.length === 2 ? names[i] : `Skärm ${i + 1}`;
+    const parts = [d.label ? `${pos}: ${d.label}` : pos];
+    if (d.id === primaryId) parts.push('huvudskärm');
+    parts.push(`${d.size.width}×${d.size.height}`);
+    return {
+      label: parts.join(' · '),
+      type: 'radio',
+      checked: !settings.detached && d.id === current,
+      click: () => pinToDisplay(d.id),
+    };
+  });
+}
+
+function pinToDisplay(id) {
+  settings.displayId = id;
+  settings.detached = false;
+  settings.pos = null;
+  saveSettings();
+  placeWindow();
+  if (win) win.webContents.send('detached', false);
 }
 
 /* ---------- lossa ön och flytta den ---------- */
@@ -225,6 +265,9 @@ function buildMenu() {
     settings.detached
       ? { label: 'Fäst överst i mitten', click: () => setDetached(false) }
       : { label: 'Lossa ön (dra för att flytta)', click: () => setDetached(true) },
+    ...(screen.getAllDisplays().length > 1
+      ? [{ label: 'Skärm', submenu: displayItems() }]
+      : []),
     { type: 'separator' },
     {
       label: 'Projektmapp',

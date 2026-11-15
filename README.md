@@ -7,6 +7,7 @@ En Dynamic Island-inspirerad statusbar för Windows som visar hur mycket av dina
 - **Minimera till systemfältet:** ön försvinner och en liten färgad bricka med sessionsprocenten visas i systemfältet. Klicka på brickan för att visa ön igen.
 - **Projektdocka:** håll musen över ön så glider dina projekt (mappar i `~/Projects`) ut bredvid den. Klicka på ett projekt för att öppna det i VS Code med Claude Code igång.
 - **Aviseringar från Claude Code:** när Claude är klar eller behöver ditt tillstånd fjädrar ön ut med projektets ikon. Klicka för att hoppa till rätt VS Code-fönster. Se [Aviseringar](#aviseringar).
+- **Flera skärmar:** högerklick → *Skärm* och välj vilken skärm ön ska sitta överst i mitten på. Kopplas skärmen bort hamnar ön på huvudskärmen tills den kommer tillbaka.
 - **Lossa ön:** högerklick → "Lossa ön" och dra den dit du vill, t.ex. bort från webbläsarens flikar.
 - **Startar med Windows** (kan stängas av i högerklicksmenyn).
 
