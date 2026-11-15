@@ -18,7 +18,9 @@ Kräver att [Claude Code](https://claude.com/claude-code) är installerat och in
 
 ## Projektdockan
 
-- Projekt = undermappar i `%USERPROFILE%\Projects` med `.git`, `package.json` eller `pubspec.yaml`, sorterade efter senaste git-aktivitet.
+- Projekt = undermappar i projektmappen med `.git`, `package.json` eller `pubspec.yaml`, sorterade efter senaste git-aktivitet.
+- **Projektmapp:** högerklick på ön → *Projektmapp* → *Välj projektmapp…*. Utan eget val letar appen efter `Projects`, `source\repos`, `repos`, `dev`, `code` och `Documents\GitHub` i hemmappen.
+- **Välj projekt:** klicka på **+** i dockan (eller rutnätsikonen i den utfällda ön). Där finns alla projekt med sökfält och av/på-reglage; dockan rymmer 8. Utan eget urval visas de 8 senast aktiva.
 - Ikonen hämtas från projektet (favicon, `icon.svg`, appikon m.m.), annars visas initialer.
 - Har två projekt samma förled (t.ex. *LILO App* och *LILO Portal*) visas ett litet märke för typen: webb, app eller skrivbordsapp.
 - Första gången ett projekt öppnas skapas `.vscode/tasks.json` som startar `claude` när mappen öppnas i VS Code. Filen läggs i `.git/info/exclude` och hamnar aldrig i repot.

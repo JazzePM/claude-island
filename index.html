@@ -182,6 +182,63 @@
   }
   #dock-label.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #dock-label span { color: var(--muted); font-weight: 500; }
+
+  /* ---------- redigera-knapp i dockan ---------- */
+  .proj.edit .in {
+    display: grid; place-items: center; border-radius: 7px;
+    background: #1c1c1e; color: var(--muted);
+  }
+  .proj.edit:hover .in { color: var(--fg); background: #2c2c2e; }
+  .proj.edit svg { width: 13px; height: 13px; }
+  .dock-sep { width: 1px; height: 18px; background: #2c2c2e; flex: none; margin: 0 -2px; }
+
+  /* ---------- projektvy (välj projekt i dockan) ---------- */
+  #picker[hidden], #rows[hidden], .icon-btn[hidden] { display: none; }
+  #pick-search {
+    width: 100%; margin-bottom: 10px;
+    background: var(--track); color: var(--fg);
+    border: 0; border-radius: 10px; padding: 8px 12px;
+    font: 13px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    outline: none;
+  }
+  #pick-search::placeholder { color: var(--muted); }
+  #pick-search:focus { box-shadow: inset 0 0 0 1px #48484a; }
+  #pick-list {
+    max-height: 252px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 2px;
+    margin: 0 -8px; padding: 0 4px;
+  }
+  #pick-list::-webkit-scrollbar { width: 6px; }
+  #pick-list::-webkit-scrollbar-thumb { background: #3a3a3c; border-radius: 3px; }
+  .pick-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px; border-radius: 10px; cursor: pointer;
+    transition: background .12s;
+  }
+  .pick-row:hover { background: var(--track); }
+  .pick-row.disabled { cursor: default; }
+  .pick-row.disabled .tile, .pick-row.disabled .txt { opacity: .4; }
+  .pick-row .tile, .pick-row .tile img, .pick-row .tile .mono {
+    width: 24px; height: 24px; border-radius: 7px; flex: none; display: block; object-fit: cover;
+  }
+  .pick-row .tile .mono { display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; }
+  .pick-row .txt { min-width: 0; flex: 1; }
+  .pick-row .nm { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pick-row .kd { font-size: 11px; color: var(--muted); }
+  .switch {
+    position: relative; width: 34px; height: 20px; border-radius: 10px; flex: none;
+    background: #3a3a3c; transition: background .2s;
+  }
+  .switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,.3);
+    transition: transform .3s cubic-bezier(.3,1.4,.5,1);
+  }
+  .pick-row.on .switch { background: var(--ok); }
+  .pick-row.on .switch::after { transform: translateX(14px); }
+  .pick-empty { font-size: 12px; color: var(--muted); padding: 10px 8px; }
+  .pick-hint { font-size: 11px; color: var(--muted); margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -207,10 +264,13 @@
     <div class="expanded" id="expanded">
       <header>
         <svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><g stroke="var(--brand)" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/></g></svg>
-        <h1>Claude-förbrukning</h1>
+        <h1 id="title">Claude-förbrukning</h1>
         <span class="plan" id="plan" hidden></span>
         <span class="spacer"></span>
         <span class="meta" id="meta"></span>
+        <button class="icon-btn" id="projects-btn" title="Välj projekt i dockan" aria-label="Välj projekt i dockan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>
+        </button>
         <button class="icon-btn" id="minimize" title="Minimera till systemfältet" aria-label="Minimera till systemfältet">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
         </button>
@@ -219,6 +279,11 @@
         </button>
       </header>
       <div class="rows" id="rows"><p class="msg">Hämtar förbrukning…</p></div>
+      <div id="picker" hidden>
+        <input id="pick-search" type="text" placeholder="Sök projekt…" autocomplete="off" spellcheck="false">
+        <div id="pick-list"></div>
+        <p class="pick-hint" id="pick-hint"></p>
+      </div>
     </div>
   </div>
   <div id="dock" aria-label="Projekt"></div>
@@ -425,7 +490,8 @@
     plan.hidden = !s.plan;
     plan.textContent = s.plan || '';
 
-    const meta = $('meta');
+    // I projektvyn visar meta-fältet antal valda projekt; rör det inte här.
+    const meta = view === 'usage' ? $('meta') : document.createElement('span');
     meta.classList.toggle('err', !!s.error);
     meta.textContent = s.error
       ? (s.error === 'offline' ? 'offline' : 'fel')
@@ -515,11 +581,28 @@
     return w.length > 1 ? (w[0][0] + w[1][0]).toUpperCase() : name.slice(0, 2).replace(/^./, (c) => c.toUpperCase());
   }
 
+  // Projektets ikon, eller en färgad ruta med initialer om ikon saknas.
+  function makeTile(p) {
+    if (p.icon) {
+      const img = document.createElement('img');
+      img.src = p.icon;
+      img.alt = '';
+      img.draggable = false;
+      return img;
+    }
+    const mono = document.createElement('span');
+    mono.className = 'mono';
+    const hue = hashHue(p.name);
+    mono.style.background = `linear-gradient(135deg, hsl(${hue} 65% 56%), hsl(${(hue + 35) % 360} 70% 42%))`;
+    mono.textContent = initials(p.name);
+    return mono;
+  }
+
   function buildDock() {
     dockEl.textContent = '';
     // Typmärket visas bara när projekt delar förled (t.ex. LILO App / LILO Portal),
     // annars är ikonerna rena.
-    const shown = projects.slice(0, 8);
+    const shown = projects.filter((p) => p.selected).slice(0, 8);
     const prefix = (p) => p.name.split(/\s+/)[0].toLowerCase();
     const count = {};
     for (const p of shown) count[prefix(p)] = (count[prefix(p)] || 0) + 1;
@@ -529,20 +612,7 @@
       btn.setAttribute('aria-label', p.name);
       const inner = document.createElement('span');
       inner.className = 'in';
-      if (p.icon) {
-        const img = document.createElement('img');
-        img.src = p.icon;
-        img.alt = '';
-        img.draggable = false;
-        inner.appendChild(img);
-      } else {
-        const mono = document.createElement('span');
-        mono.className = 'mono';
-        const hue = hashHue(p.name);
-        mono.style.background = `linear-gradient(135deg, hsl(${hue} 65% 56%), hsl(${(hue + 35) % 360} 70% 42%))`;
-        mono.textContent = initials(p.name);
-        inner.appendChild(mono);
-      }
+      inner.appendChild(makeTile(p));
       if (p.kind && KIND[p.kind] && count[prefix(p)] > 1) {
         const b = document.createElement('span');
         b.className = 'badge';
@@ -555,8 +625,111 @@
       btn.addEventListener('click', (e) => { e.stopPropagation(); launch(btn, p); });
       dockEl.appendChild(btn);
     }
+    // Sist: knapp som öppnar projektvyn.
+    if (shown.length) {
+      const sep = document.createElement('span');
+      sep.className = 'dock-sep';
+      dockEl.appendChild(sep);
+    }
+    const edit = document.createElement('button');
+    edit.className = 'proj edit';
+    edit.setAttribute('aria-label', 'Välj projekt');
+    edit.innerHTML = '<span class="in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>';
+    edit.addEventListener('mouseenter', () => showLabel(edit, { name: 'Välj projekt' }));
+    edit.addEventListener('mouseleave', hideLabel);
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hoverDock = false;
+      openPicker();
+    });
+    dockEl.appendChild(edit);
     paint();
   }
+
+  /* ================= projektvy ================= */
+  let view = 'usage'; // 'usage' | 'picker'
+  const DOCK_MAX = 8;
+
+  function setView(v) {
+    view = v;
+    $('rows').hidden = v !== 'usage';
+    $('picker').hidden = v !== 'picker';
+    $('title').textContent = v === 'picker' ? 'Projekt i dockan' : 'Claude-förbrukning';
+    $('refresh').hidden = v === 'picker';
+    $('projects-btn').title = v === 'picker' ? 'Tillbaka till förbrukning' : 'Välj projekt i dockan';
+    if (v === 'picker') {
+      $('pick-search').value = '';
+      renderPicker();
+      setTimeout(() => $('pick-search').focus(), 120);
+    } else {
+      render();
+    }
+    if (isOpen) setTargets();
+  }
+
+  function openPicker() {
+    loadProjects();
+    open();
+    setView('picker');
+  }
+
+  function renderPicker() {
+    const list = $('pick-list');
+    const q = $('pick-search').value.trim().toLowerCase();
+    const n = projects.filter((p) => p.selected).length;
+    $('meta').classList.remove('err');
+    $('meta').textContent = `${n} av ${DOCK_MAX}`;
+    $('meta').title = 'Valda projekt i dockan';
+    list.textContent = '';
+    const rows = projects.filter((p) => !q || p.name.toLowerCase().includes(q));
+    if (!projects.length) {
+      list.innerHTML = '<p class="pick-empty">Inga projekt hittades. Välj projektmapp via högerklick på ön.</p>';
+    } else if (!rows.length) {
+      list.innerHTML = '<p class="pick-empty">Inga projekt matchar sökningen.</p>';
+    }
+    for (const p of rows) {
+      const full = !p.selected && n >= DOCK_MAX;
+      const row = document.createElement('div');
+      row.className = 'pick-row' + (p.selected ? ' on' : '') + (full ? ' disabled' : '');
+      row.setAttribute('role', 'switch');
+      row.setAttribute('aria-checked', String(!!p.selected));
+      const tile = document.createElement('span');
+      tile.className = 'tile';
+      tile.appendChild(makeTile(p));
+      const txt = document.createElement('div');
+      txt.className = 'txt';
+      const nm = document.createElement('div');
+      nm.className = 'nm';
+      nm.textContent = p.name;
+      txt.appendChild(nm);
+      if (p.kind && KIND[p.kind]) {
+        const kd = document.createElement('div');
+        kd.className = 'kd';
+        kd.textContent = KIND[p.kind].label;
+        txt.appendChild(kd);
+      }
+      const sw = document.createElement('span');
+      sw.className = 'switch';
+      row.append(tile, txt, sw);
+      row.addEventListener('click', (e) => { e.stopPropagation(); if (!full) toggleProject(p); });
+      list.appendChild(row);
+    }
+    $('pick-hint').textContent = n >= DOCK_MAX
+      ? `Dockan rymmer ${DOCK_MAX} projekt. Slå av något för att välja ett annat.`
+      : 'Valda projekt visas i dockan när du håller musen över ön.';
+  }
+
+  async function toggleProject(p) {
+    p.selected = !p.selected;
+    renderPicker();
+    buildDock();
+    await window.bridge.setSelected(projects.filter((x) => x.selected).map((x) => x.path));
+    loadProjects.key = null;
+  }
+
+  $('pick-search').addEventListener('input', () => { renderPicker(); if (isOpen) setTargets(); });
+  $('pick-search').addEventListener('click', (e) => e.stopPropagation());
+  $('picker').addEventListener('click', (e) => e.stopPropagation());
 
   function showLabel(btn, p, text) {
     labelEl.textContent = text || p.name;
@@ -585,13 +758,18 @@
   async function loadProjects() {
     try {
       const list = await window.bridge.projects();
-      const key = JSON.stringify(list.map((p) => [p.path, p.kind, !!p.icon]));
-      if (key !== loadProjects.key) { loadProjects.key = key; projects = list; buildDock(); }
+      const key = JSON.stringify(list.map((p) => [p.path, p.kind, !!p.icon, p.selected]));
+      if (key !== loadProjects.key) {
+        loadProjects.key = key;
+        projects = list;
+        buildDock();
+        if (view === 'picker') renderPicker();
+      }
     } catch {}
   }
 
   function showDock() {
-    if (dockShown || isOpen || drag || !projects.length) return;
+    if (dockShown || isOpen || drag) return;
     dockShown = true;
     dockEl.classList.add('live');
     D.to = 1;
@@ -632,6 +810,7 @@
 
   loadProjects();
   setInterval(loadProjects, 60 * 1000);
+  window.bridge.onProjectsChanged(() => { loadProjects.key = null; loadProjects(); });
 
   /* ================= lossad ö: dra för att flytta ================= */
   function setDetachedUI(on) {
@@ -674,6 +853,7 @@
   function close() {
     if (!isOpen) return;
     isOpen = false;
+    if (view !== 'usage') setTimeout(() => { if (!isOpen) setView('usage'); }, 450);
     islandEl.classList.remove('open');
     islandEl.setAttribute('aria-expanded', 'false');
     setTargets();
@@ -687,7 +867,14 @@
   islandEl.addEventListener('contextmenu', (e) => { e.preventDefault(); window.bridge.menu(); });
   islandEl.addEventListener('mouseenter', () => { hoverIsland = true; loadProjects(); updateHover(); });
   islandEl.addEventListener('mouseleave', () => { hoverIsland = false; updateHover(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (view === 'picker') setView('usage'); else close();
+  });
+  $('projects-btn').addEventListener('click', () => {
+    if (view === 'picker') setView('usage');
+    else { loadProjects(); setView('picker'); }
+  });
 
   $('refresh').addEventListener('click', () => load(true));
   $('minimize').addEventListener('click', () => window.bridge.minimize());

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, dialog, shell } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -9,7 +9,7 @@ const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const POLL_MS = 2 * 60 * 1000;   // bakgrundsuppdatering
 const MIN_GAP_MS = 30 * 1000;    // skydd mot för täta anrop (429)
 // Fönstret har fast storlek och flyttas aldrig – allt rörligt animeras i HTML.
-const WIN_W = 820; // plats för projektdockan till höger om ön
+const WIN_W = 900; // plats för projektdockan till höger om ön
 const WIN_H = 420;
 
 // Installerad app ligger i en skrivskyddad asar-fil, så loggen hamnar i användarmappen.
@@ -34,7 +34,7 @@ let tray = null;
 
 /* ---------- sparade inställningar (t.ex. om ön är minimerad) ---------- */
 const SETTINGS_PATH = () => path.join(app.getPath('userData'), 'settings.json');
-let settings = { minimized: false, autostartSet: false, detached: false, pos: null };
+let settings = { minimized: false, autostartSet: false, detached: false, pos: null, projectsRoot: null, selected: null };
 function loadSettings() {
   try { settings = { ...settings, ...JSON.parse(fs.readFileSync(SETTINGS_PATH(), 'utf8')) }; } catch {}
 }
@@ -224,6 +224,14 @@ function buildMenu() {
       ? { label: 'Fäst överst i mitten', click: () => setDetached(false) }
       : { label: 'Lossa ön (dra för att flytta)', click: () => setDetached(true) },
     { type: 'separator' },
+    {
+      label: 'Projektmapp',
+      submenu: [
+        { label: projectsRoot(), enabled: false },
+        { label: 'Välj projektmapp…', click: chooseProjectsRoot },
+        { label: 'Öppna i Utforskaren', click: () => shell.openPath(projectsRoot()) },
+      ],
+    },
     { label: 'Uppdatera nu', click: () => push(true) },
     {
       label: 'Starta med Windows',
@@ -252,7 +260,29 @@ ipcMain.on('menu', () => buildMenu().popup({ window: win }));
 
 /* ================= projekt =================
    Projekt = undermappar i ~/Projects med .git, package.json eller pubspec.yaml. */
-const PROJECTS_ROOT = path.join(os.homedir(), 'Projects');
+// Vald mapp i inställningarna, annars första vanliga projektmapp som finns.
+const ROOT_GUESSES = ['Projects', 'projects', 'source/repos', 'repos', 'dev', 'code', 'Code', 'Documents/GitHub', 'Documents/Projects']
+  .map((p) => path.join(os.homedir(), p));
+function projectsRoot() {
+  if (settings.projectsRoot && exists(settings.projectsRoot)) return settings.projectsRoot;
+  return ROOT_GUESSES.find(exists) || ROOT_GUESSES[0];
+}
+
+async function chooseProjectsRoot() {
+  const res = await dialog.showOpenDialog({
+    title: 'Välj projektmapp',
+    buttonLabel: 'Välj mapp',
+    defaultPath: projectsRoot(),
+    properties: ['openDirectory'],
+  });
+  if (res.canceled || !res.filePaths[0]) return;
+  settings.projectsRoot = res.filePaths[0];
+  settings.selected = null; // ny mapp = nytt urval
+  saveSettings();
+  projectCache = null;
+  log('[project] ny projektmapp', settings.projectsRoot);
+  if (win) win.webContents.send('projects-changed');
+}
 const ICON_CANDIDATES = [
   'src/app/icon.svg', 'src/app/icon.png', 'app/icon.svg', 'app/icon.png',
   'src/app/apple-icon.png', 'app/apple-icon.png',
@@ -302,13 +332,14 @@ function activity(dir) {
 }
 
 let projectCache = null, projectCacheAt = 0;
-function listProjects() {
+function allProjects() {
   if (projectCache && Date.now() - projectCacheAt < 60 * 1000) return projectCache;
   let entries = [];
-  try { entries = fs.readdirSync(PROJECTS_ROOT, { withFileTypes: true }); } catch { return []; }
+  const root = projectsRoot();
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return []; }
   projectCache = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-    .map((e) => path.join(PROJECTS_ROOT, e.name))
+    .map((e) => path.join(root, e.name))
     .filter((d) => ['.git', 'package.json', 'pubspec.yaml'].some((f) => exists(path.join(d, f))))
     .map((d) => ({
       name: path.basename(d).replace(/[-_]+/g, ' '),
@@ -317,11 +348,30 @@ function listProjects() {
       kind: detectKind(d),
       activity: activity(d),
     }))
-    .sort((a, b) => b.activity - a.activity)
-    .slice(0, 10);
+    .sort((a, b) => b.activity - a.activity);
   projectCacheAt = Date.now();
   return projectCache;
 }
+
+// Max antal projekt i dockan (resten väljs bort i projektvyn).
+const DOCK_MAX = 8;
+
+// Alla projekt, med flaggan selected. Utan eget urval: de senast aktiva.
+function listProjects() {
+  const all = allProjects();
+  const chosen = Array.isArray(settings.selected)
+    ? new Set(settings.selected)
+    : new Set(all.slice(0, DOCK_MAX).map((p) => p.path));
+  return all.map((p) => ({ ...p, selected: chosen.has(p.path) }));
+}
+
+ipcMain.handle('set-selected', (_e, paths) => {
+  if (!Array.isArray(paths)) return false;
+  const valid = new Set(allProjects().map((p) => p.path));
+  settings.selected = paths.filter((p) => typeof p === 'string' && valid.has(p)).slice(0, DOCK_MAX);
+  saveSettings();
+  return true;
+});
 
 // Lägger en VS Code-uppgift som startar Claude Code när mappen öppnas.
 // Filen hålls utanför git via .git/info/exclude (påverkar inte repot).
@@ -367,7 +417,7 @@ function findVSCode() {
 
 function openProject(dir) {
   // Öppna bara mappar som faktiskt finns i projektlistan.
-  const p = listProjects().find((x) => x.path === dir);
+  const p = allProjects().find((x) => x.path === dir);
   if (!p) return false;
   const code = findVSCode();
   if (!code) { log('[project] hittar inte VS Code'); return false; }

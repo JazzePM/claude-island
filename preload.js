@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('bridge', {
   dragEnd: () => ipcRenderer.send('drag-end'),
   isDetached: () => ipcRenderer.invoke('is-detached'),
   onDetached: (cb) => ipcRenderer.on('detached', (_e, on) => cb(on)),
+  onProjectsChanged: (cb) => ipcRenderer.on('projects-changed', () => cb()),
+  setSelected: (paths) => ipcRenderer.invoke('set-selected', paths),
   onUsage: (cb) => ipcRenderer.on('usage', (_e, p) => cb(p)),
   onCollapse: (cb) => ipcRenderer.on('collapse', () => cb()),
 });
