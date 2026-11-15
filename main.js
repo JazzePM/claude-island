@@ -11,14 +11,22 @@ const MIN_GAP_MS = 30 * 1000;    // skydd mot för täta anrop (429)
 const WIN_W = 480;
 const WIN_H = 420;
 
-const LOG_PATH = path.join(__dirname, 'island.log');
+// Installerad app ligger i en skrivskyddad asar-fil, så loggen hamnar i användarmappen.
+const LOG_PATH = app.isPackaged
+  ? path.join(app.getPath('userData'), 'island.log')
+  : path.join(__dirname, 'island.log');
 function log(...a) {
   try { fs.appendFileSync(LOG_PATH, `${new Date().toISOString()} ${a.join(' ')}
 `); } catch {}
 }
 
 // Gemensamma värden för autostart, så posten heter "Claude Island" i Windows.
-const LOGIN = { name: 'Claude Island', path: process.execPath, args: [app.getAppPath()] };
+// Installerad: starta exe-filen direkt. Utvecklingsläge: electron.exe + projektmappen.
+const LOGIN = {
+  name: 'Claude Island',
+  path: process.execPath,
+  args: app.isPackaged ? [] : [app.getAppPath()],
+};
 
 let win;
 let tray = null;

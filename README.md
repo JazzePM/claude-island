@@ -13,8 +13,20 @@ Kräver Node.js och att du är inloggad i [Claude Code](https://claude.com/claud
 
 ```
 npm install
-npm start
+npm start        # kör i utvecklingsläge
+npm run dist     # bygger installeraren: dist/Claude Island Setup <version>.exe
 ```
+
+Installeraren installerar appen per användare (ingen administratör behövs) under
+`%LOCALAPPDATA%\Programs\claude-island` och lägger till den i Startmenyn.
+Installeraren är inte signerad, så SmartScreen kan varna på andra datorer.
+
+Appikonen ritas av `npm run icon` (`build/make-icon.js`).
+
+> **Om bygget stoppar på "Cannot create symbolic link"**: packa upp
+> `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\<nummer>.7z` till mappen
+> `winCodeSign-2.6.0` i samma katalog och hoppa över `darwin`-mappen, t.ex.
+> `7za x <arkiv>.7z -owinCodeSign-2.6.0 -xr!darwin`.
 
 ## Hur det fungerar
 
@@ -31,4 +43,4 @@ Uppdateras varannan minut och när du fäller ut ön.
 | Högerklick på ön eller brickan | Meny: minimera/visa, uppdatera, starta med Windows, avsluta |
 | Klick på brickan i systemfältet | Visa / minimera ön |
 
-Fel loggas till `island.log` i projektmappen.
+Fel loggas till `%APPDATA%\Claude Island\island.log` (installerad app) eller `island.log` i projektmappen (utvecklingsläge).

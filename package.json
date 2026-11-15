@@ -1,13 +1,42 @@
 {
   "name": "claude-island",
+  "productName": "Claude Island",
   "version": "1.0.0",
   "description": "Dynamic Island-inspirerad statusbar för Claude-förbrukning",
   "main": "main.js",
   "private": true,
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "icon": "electron build/make-icon.js",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.jazzepm.claudeisland",
+    "productName": "Claude Island",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claude Island"
+    }
   },
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
   }
 }
