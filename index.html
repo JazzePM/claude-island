@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Claude Island</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #f5f5f7;
+    --muted: #8e8e93;
+    --faint: #3a3a3c;
+    --track: #1c1c1e;
+    --brand: #d97757;
+    --ok: #30d158;
+    --warn: #ffd60a;
+    --high: #ff9f0a;
+    --crit: #ff453a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: transparent; overflow: hidden; height: 100%; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  /* Storlek och hörnradie styrs av fjäderfysiken i skriptet. */
+  #island {
+    position: relative;
+    width: 220px;
+    height: 36px;
+    border-radius: 18px;
+    background: var(--bg);
+    overflow: hidden;
+    cursor: pointer;
+    will-change: width, height;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 12px 32px rgba(0,0,0,.35);
+    transform: translateZ(0);
+  }
+  #island.open { cursor: default; }
+
+  /* Båda lägena ligger centrerade med fast bredd, så ön växer symmetriskt runt dem. */
+  .compact, .expanded {
+    position: absolute; top: 0; left: 50%;
+    will-change: opacity, transform, filter;
+  }
+
+  /* ---------- kompakt läge ---------- */
+  .compact {
+    width: 220px; height: 36px;
+    transform: translateX(-50%);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px 0 10px;
+  }
+  .side { display: flex; align-items: center; gap: 7px; }
+  .num {
+    font-size: 13px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+  }
+  .tag { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .spark { width: 16px; height: 16px; flex: none; }
+  .ring { width: 18px; height: 18px; transform: rotate(-90deg); flex: none; }
+  .ring circle { fill: none; stroke-width: 3; }
+  .ring .bg { stroke: var(--faint); }
+  .ring .fg { stroke-linecap: round; transition: stroke-dashoffset .8s cubic-bezier(.2,.8,.2,1), stroke .3s; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--crit); display: none; }
+  .dot.show { display: block; }
+
+  /* ---------- expanderat läge ---------- */
+  .expanded {
+    width: 420px;
+    padding: 18px 22px 20px;
+    opacity: 0;
+    transform: translateX(-50%);
+    transform-origin: top center;
+    pointer-events: none;
+  }
+  #island.open .expanded { pointer-events: auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  header .spark { width: 22px; height: 22px; }
+  header h1 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .plan {
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--brand); background: rgba(217,119,87,.14);
+    padding: 3px 7px; border-radius: 6px;
+  }
+  header .spacer { flex: 1; }
+  .meta { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .meta.err { color: var(--high); }
+  .icon-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 0; background: var(--track); color: var(--muted);
+    display: grid; place-items: center; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .icon-btn:hover { background: var(--faint); color: var(--fg); }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .icon-btn.spin svg { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .rows { display: flex; flex-direction: column; gap: 14px; }
+  .group-label {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin: 4px 0 -6px;
+  }
+  .row .top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+  .row .name { font-size: 13px; font-weight: 600; }
+  .row .hint { font-size: 11px; color: var(--muted); }
+  .row .pct {
+    margin-left: auto; font-size: 20px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  }
+  .row .pct small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 1px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .bar i {
+    display: block; height: 100%; border-radius: 3px;
+    transition: width .8s cubic-bezier(.2,.8,.2,1), background .3s;
+  }
+  .row .reset { margin-top: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .row .reset b { color: var(--fg); font-weight: 500; }
+  .row.empty .pct, .row.empty .name { color: var(--muted); }
+
+  .msg { font-size: 12px; color: var(--muted); line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div id="island" role="button" aria-expanded="false" aria-label="Claude-förbrukning">
+    <div class="compact" id="compact">
+      <div class="side">
+        <svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><g stroke="var(--brand)" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/></g></svg>
+        <span class="num" id="c-session">–</span>
+        <span class="tag">5h</span>
+      </div>
+      <div class="side">
+        <span class="dot" id="c-dot"></span>
+        <span class="tag">v</span>
+        <span class="num" id="c-week">–</span>
+        <svg class="ring" viewBox="0 0 20 20" aria-hidden="true">
+          <circle class="bg" cx="10" cy="10" r="7"/>
+          <circle class="fg" id="c-ring" cx="10" cy="10" r="7" stroke-dasharray="43.98" stroke-dashoffset="43.98"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="expanded" id="expanded">
+      <header>
+        <svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><g stroke="var(--brand)" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/></g></svg>
+        <h1>Claude-förbrukning</h1>
+        <span class="plan" id="plan" hidden></span>
+        <span class="spacer"></span>
+        <span class="meta" id="meta"></span>
+        <button class="icon-btn" id="minimize" title="Minimera till systemfältet" aria-label="Minimera till systemfältet">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
+        </button>
+        <button class="icon-btn" id="refresh" title="Uppdatera" aria-label="Uppdatera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </header>
+      <div class="rows" id="rows"><p class="msg">Hämtar förbrukning…</p></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const islandEl = $('island');
+  const compactEl = $('compact');
+  const expandedEl = $('expanded');
+  let state = null;
+
+  /* ================= fjäderfysik =================
+     Varje mått är en dämpad fjäder. Byter man mål mitt i en rörelse
+     behålls farten, så animationen kan avbrytas utan ryck. */
+  const C_W = 220, C_H = 36, O_W = 420, HOVER = 1.035;
+  const SPRING_OPEN  = { k: 230, c: 22 };  // lite studs, som Dynamic Island
+  const SPRING_CLOSE = { k: 300, c: 30 };  // stramare på vägen hem
+  const SPRING_HOVER = { k: 420, c: 30 };
+
+  function spring(v) { return { x: v, v: 0, to: v, p: SPRING_OPEN }; }
+  const W = spring(C_W), H = spring(C_H);
+  let isOpen = false, hovering = false, raf = 0, lastT = 0;
+
+  function stepSpring(s, dt) {
+    const a = -s.p.k * (s.x - s.to) - s.p.c * s.v;
+    s.v += a * dt;
+    s.x += s.v * dt;
+  }
+  const settled = (s) => Math.abs(s.x - s.to) < 0.05 && Math.abs(s.v) < 0.05;
+
+  function frame(t) {
+    const dt = Math.min((t - lastT) / 1000 || 0, 1 / 30);
+    lastT = t;
+    // Små delsteg ger stabil fysik oavsett bildfrekvens.
+    const n = Math.max(1, Math.ceil(dt / (1 / 240)));
+    for (let i = 0; i < n; i++) { stepSpring(W, dt / n); stepSpring(H, dt / n); }
+    paint();
+    if (settled(W) && settled(H)) {
+      W.x = W.to; H.x = H.to; W.v = H.v = 0;
+      paint();
+      raf = 0;
+    } else {
+      raf = requestAnimationFrame(frame);
+    }
+  }
+  function kick() {
+    if (!raf) { lastT = performance.now(); raf = requestAnimationFrame(frame); }
+  }
+
+  const clamp01 = (n) => Math.max(0, Math.min(1, n));
+  function paint() {
+    // p: 0 = kompakt, 1 = helt öppen (kan översvänga lite).
+    const p = (W.x - C_W) / (O_W - C_W);
+    islandEl.style.width = W.x + 'px';
+    islandEl.style.height = H.x + 'px';
+    islandEl.style.borderRadius = Math.min(H.x / 2, 18 + clamp01(p) * 14) + 'px';
+
+    // Kompakt innehåll försvinner tidigt och suddas ut.
+    const co = clamp01(1 - p * 3.2);
+    compactEl.style.opacity = co;
+    compactEl.style.filter = co < 1 ? `blur(${(1 - co) * 6}px)` : '';
+    compactEl.style.transform = `translateX(-50%) scale(${1 + clamp01(p) * 0.12})`;
+
+    // Expanderat innehåll tonar in när ön nästan har nått sin storlek.
+    const eo = clamp01((p - 0.35) / 0.55);
+    expandedEl.style.opacity = eo;
+    expandedEl.style.filter = eo < 1 ? `blur(${(1 - eo) * 8}px)` : '';
+    expandedEl.style.transform = `translateX(-50%) translateY(${(1 - eo) * -6}px) scale(${0.94 + eo * 0.06})`;
+  }
+
+  function setTargets() {
+    const params = isOpen ? SPRING_OPEN : hovering ? SPRING_HOVER : SPRING_CLOSE;
+    W.p = H.p = params;
+    if (isOpen) {
+      W.to = O_W;
+      H.to = expandedEl.offsetHeight;
+    } else {
+      const s = hovering ? HOVER : 1;
+      W.to = C_W * s;
+      H.to = C_H * s;
+    }
+    kick();
+  }
+
+  /* ================= data ================= */
+  const clamp = (n) => Math.max(0, Math.min(100, n));
+  const pctOf = (w) => (w && typeof w.utilization === 'number') ? clamp(w.utilization) : null;
+  function level(p) {
+    if (p == null) return 'var(--faint)';
+    if (p >= 90) return 'var(--crit)';
+    if (p >= 75) return 'var(--high)';
+    if (p >= 50) return 'var(--warn)';
+    return 'var(--ok)';
+  }
+  const fmtPct = (p) => p == null ? '–' : Math.round(p) + '%';
+
+  const dayFmt = new Intl.DateTimeFormat('sv-SE', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const timeFmt = new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit' });
+
+  function untilText(iso) {
+    if (!iso) return null;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return null;
+    let mins = Math.max(0, Math.round((t - Date.now()) / 60000));
+    const d = Math.floor(mins / 1440); mins -= d * 1440;
+    const h = Math.floor(mins / 60); const m = mins % 60;
+    let rel;
+    if (d > 0) rel = `${d} d ${h} h`;
+    else if (h > 0) rel = `${h} h ${m} min`;
+    else rel = `${m} min`;
+    const sameDay = new Date(t).toDateString() === new Date().toDateString();
+    const abs = sameDay ? `idag ${timeFmt.format(t)}` : dayFmt.format(t);
+    return { rel, abs };
+  }
+
+  const titleCase = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  // Plockar ut fönstren ur API-svaret. Främst från listan `limits`
+  // (session / weekly_all / weekly_scoped per modell), annars de äldre fälten.
+  function windows(data) {
+    const byFable = (a, b) => (b.key.includes('fable') - a.key.includes('fable')) || a.name.localeCompare(b.name);
+    const limits = Array.isArray(data?.limits) ? data.limits : null;
+    if (limits && limits.length) {
+      const w = (l) => l ? { utilization: l.percent, resets_at: l.resets_at } : null;
+      const models = limits
+        .filter((l) => l.kind === 'weekly_scoped')
+        .map((l) => {
+          const name = l.scope?.model?.display_name || l.scope?.surface || 'Övrigt';
+          return { key: name.toLowerCase(), name, w: w(l) };
+        })
+        .sort(byFable);
+      if (!models.some((m) => m.key.includes('fable'))) models.unshift({ key: 'fable', name: 'Fable', w: null });
+      return {
+        session: w(limits.find((l) => l.kind === 'session')) || data.five_hour || null,
+        week: w(limits.find((l) => l.kind === 'weekly_all')) || data.seven_day || null,
+        models,
+      };
+    }
+    const models = Object.keys(data || {})
+      .filter((k) => /^seven_day_/.test(k) && k !== 'seven_day_oauth_apps')
+      .filter((k) => data[k] && typeof data[k] === 'object' && 'utilization' in data[k])
+      .map((k) => ({ key: k, name: titleCase(k.replace('seven_day_', '').replace(/_/g, ' ')), w: data[k] }))
+      .sort(byFable);
+    if (!models.some((m) => m.key.includes('fable'))) models.unshift({ key: 'fable', name: 'Fable', w: null });
+    return { session: data?.five_hour || null, week: data?.seven_day || null, models };
+  }
+
+  const ERRORS = {
+    nocreds: 'Hittar inga Claude-inloggningsuppgifter. Logga in i Claude Code först.',
+    expired: 'Inloggningen har gått ut – starta Claude Code en gång så förnyas den.',
+    ratelimited: 'För många anrop just nu – försöker igen strax.',
+    offline: 'Ingen anslutning – visar senaste kända värden.',
+  };
+
+  function rowHTML(name, hint, w) {
+    const p = pctOf(w);
+    const u = untilText(w?.resets_at);
+    const reset = p == null
+      ? 'Ingen data för den här perioden'
+      : u ? `Återställs om <b>${u.rel}</b> · ${u.abs}` : 'Ingen aktiv period – startar vid nästa användning';
+    return `
+      <div class="row${p == null ? ' empty' : ''}">
+        <div class="top">
+          <span class="name">${name}</span>
+          ${hint ? `<span class="hint">${hint}</span>` : ''}
+          <span class="pct">${p == null ? '–' : Math.round(p)}<small>${p == null ? '' : '%'}</small></span>
+        </div>
+        <div class="bar"><i style="width:${p ?? 0}%;background:${level(p)}"></i></div>
+        <div class="reset">${reset}</div>
+      </div>`;
+  }
+
+  function render() {
+    const s = state || {};
+    const { session, week, models } = windows(s.data);
+
+    const sp = pctOf(session), wp = pctOf(week);
+    $('c-session').textContent = fmtPct(sp);
+    $('c-session').style.color = sp >= 75 ? level(sp) : '';
+    $('c-week').textContent = fmtPct(wp);
+    const ring = $('c-ring');
+    ring.style.stroke = level(wp);
+    ring.style.strokeDashoffset = 43.98 * (1 - (wp ?? 0) / 100);
+    $('c-dot').classList.toggle('show', !!s.error && !s.data);
+
+    const plan = $('plan');
+    plan.hidden = !s.plan;
+    plan.textContent = s.plan || '';
+
+    const meta = $('meta');
+    meta.classList.toggle('err', !!s.error);
+    meta.textContent = s.error
+      ? (s.error === 'offline' ? 'offline' : 'fel')
+      : s.fetchedAt ? timeFmt.format(s.fetchedAt) : '';
+    meta.title = s.error ? (ERRORS[s.error] || s.error) : 'Senast uppdaterad';
+
+    const rows = $('rows');
+    if (!s.data) {
+      rows.innerHTML = `<p class="msg">${s.error ? (ERRORS[s.error] || 'Kunde inte hämta förbrukning (' + s.error + ').') : 'Hämtar förbrukning…'}</p>`;
+    } else {
+      let html = rowHTML('Session', '5-timmarsfönster', session);
+      html += `<div class="group-label">Veckogräns</div>`;
+      html += rowHTML('Alla modeller', '', week);
+      for (const m of models) html += rowHTML(m.name, '', m.w);
+      if (s.error && ERRORS[s.error]) html += `<p class="msg">${ERRORS[s.error]}</p>`;
+      rows.innerHTML = html;
+    }
+    updateTray(session, week, models);
+
+    // Om innehållet ändrar höjd medan ön är öppen fjädrar den mjukt dit.
+    if (isOpen) setTargets();
+  }
+
+  /* ================= systemfältet =================
+     En liten färgad bricka med sessionsprocenten, ritad i 16 px och 32 px. */
+  const LEVEL_HEX = { ok: '#30d158', warn: '#ffd60a', high: '#ff9f0a', crit: '#ff453a', none: '#636366' };
+  function levelHex(p) {
+    if (p == null) return LEVEL_HEX.none;
+    if (p >= 90) return LEVEL_HEX.crit;
+    if (p >= 75) return LEVEL_HEX.high;
+    if (p >= 50) return LEVEL_HEX.warn;
+    return LEVEL_HEX.ok;
+  }
+  function drawTray(text, color, scale) {
+    const s = 16 * scale;
+    const c = document.createElement('canvas');
+    c.width = c.height = s;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, s, s, 4 * scale);
+    ctx.fill();
+    const size = text.length >= 3 ? 0.5 : text.length === 2 ? 0.68 : 0.8;
+    ctx.font = `700 ${Math.round(s * size)}px "Segoe UI Variable Display", "Segoe UI", sans-serif`;
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, s / 2, s / 2 + s * 0.04);
+    return c.toDataURL('image/png');
+  }
+  let lastTrayKey = '';
+  function updateTray(session, week, models) {
+    const sp = pctOf(session);
+    const text = sp == null ? '–' : String(Math.round(sp));
+    const color = levelHex(sp);
+    const parts = [`Session ${fmtPct(sp)}`];
+    const u = untilText(session?.resets_at);
+    if (sp != null && u) parts[0] += ` (återst. ${u.rel})`;
+    parts.push(`Vecka ${fmtPct(pctOf(week))}`);
+    for (const m of models) if (m.w) parts.push(`${m.name} ${fmtPct(pctOf(m.w))}`);
+    const tooltip = ('Claude · ' + parts.join(' · ')).slice(0, 127);
+    const key = text + color + tooltip;
+    if (key === lastTrayKey) return;
+    lastTrayKey = key;
+    window.bridge.setTray([1, 2].map((scale) => ({ scale, url: drawTray(text, color, scale) })), tooltip);
+  }
+
+  /* ================= interaktion ================= */
+  function open() {
+    if (isOpen) return;
+    isOpen = true;
+    islandEl.classList.add('open');
+    islandEl.setAttribute('aria-expanded', 'true');
+    setTargets();
+    load(false);
+  }
+  function close() {
+    if (!isOpen) return;
+    isOpen = false;
+    islandEl.classList.remove('open');
+    islandEl.setAttribute('aria-expanded', 'false');
+    setTargets();
+  }
+
+  islandEl.addEventListener('click', (e) => {
+    if (e.target.closest('.icon-btn')) return;
+    isOpen ? close() : open();
+  });
+  islandEl.addEventListener('contextmenu', (e) => { e.preventDefault(); window.bridge.menu(); });
+  islandEl.addEventListener('mouseenter', () => {
+    window.bridge.setIgnore(false);
+    hovering = true;
+    if (!isOpen) setTargets();
+  });
+  islandEl.addEventListener('mouseleave', () => {
+    window.bridge.setIgnore(true);
+    hovering = false;
+    if (!isOpen) setTargets();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+  $('refresh').addEventListener('click', () => load(true));
+  $('minimize').addEventListener('click', () => window.bridge.minimize());
+
+  async function load(force) {
+    const btn = $('refresh');
+    btn.classList.add('spin');
+    try { state = await window.bridge.getUsage(force); }
+    finally { btn.classList.remove('spin'); }
+    render();
+  }
+
+  window.bridge.onUsage((p) => { state = p; render(); });
+  window.bridge.onCollapse(() => {
+    hovering = false;
+    close();
+    if (!isOpen) setTargets();
+  });
+
+  // Håll nedräkningarna färska utan nya API-anrop.
+  setInterval(() => { if (state) render(); }, 30000);
+
+  paint();
+  load(true);
+</script>
+</body>
+</html>
