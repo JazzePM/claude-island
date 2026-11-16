@@ -310,7 +310,7 @@ function createTray() {
 ipcMain.on('menu', () => buildMenu().popup({ window: win }));
 
 /* ================= projekt =================
-   Projekt = undermappar i ~/Projects med .git, package.json eller pubspec.yaml. */
+   Projekt = alla icke-tomma, icke-dolda undermappar i projektmappen. */
 // Vald mapp i inställningarna, annars första vanliga projektmapp som finns.
 const ROOT_GUESSES = ['Projects', 'projects', 'source/repos', 'repos', 'dev', 'code', 'Code', 'Documents/GitHub', 'Documents/Projects']
   .map((p) => path.join(os.homedir(), p));
@@ -391,7 +391,8 @@ function allProjects() {
   projectCache = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => path.join(root, e.name))
-    .filter((d) => ['.git', 'package.json', 'pubspec.yaml'].some((f) => exists(path.join(d, f))))
+    // Alla mappar som inte är tomma räknas – projekt kan vara C#, Python, ren HTML osv.
+    .filter((d) => { try { return fs.readdirSync(d).length > 0; } catch { return false; } })
     .map((d) => ({
       name: path.basename(d).replace(/[-_]+/g, ' '),
       path: d,
@@ -474,7 +475,14 @@ function openProject(dir) {
   if (!code) { log('[project] hittar inte VS Code'); return false; }
   if (allProjects().some((x) => x.path === p.path)) ensureClaudeTask(p.path);
   // Rensa Electron-variabler så att VS Code (också Electron) inte påverkas av vår miljö.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('ELECTRON_')));
+  // Startas ön från ett Claude Code-skal ärver den också dess sessionsmarkörer
+  // (CLAUDE_CODE_CHILD_SESSION m.fl.) och NO_COLOR=1. Följer de med till terminalen
+  // blir Claude Code färglös och tror att den är en undersession utan transkript.
+  const DROP = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI', 'CLAUDECODE', 'AI_AGENT', 'CLAUDE_PID', 'CLAUDE_EFFORT']);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => {
+    const K = k.toUpperCase();
+    return !K.startsWith('ELECTRON_') && !K.startsWith('CLAUDE_CODE_') && !DROP.has(K);
+  }));
   const child = spawn(code, [p.path], { detached: true, stdio: 'ignore', env });
   child.on('error', (err) => log('[project] start misslyckades', err.message));
   child.unref();
