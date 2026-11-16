@@ -473,8 +473,12 @@ function openProject(dir) {
   const code = findVSCode();
   if (!code) { log('[project] hittar inte VS Code'); return false; }
   if (allProjects().some((x) => x.path === p.path)) ensureClaudeTask(p.path);
-  // Rensa Electron-variabler så att VS Code (också Electron) inte påverkas av vår miljö.
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('ELECTRON_')));
+  // Rensa Electron-variabler så att VS Code (också Electron) inte påverkas av vår miljö,
+  // och färgspärrar som ön kan ha ärvt (t.ex. NO_COLOR=1 om den startats från ett
+  // Claude Code-skal) – annars hamnar de i terminalen och Claude Code blir färglös.
+  const DROP = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI']);
+  const env = Object.fromEntries(Object.entries(process.env)
+    .filter(([k]) => !k.startsWith('ELECTRON_') && !DROP.has(k.toUpperCase())));
   const child = spawn(code, [p.path], { detached: true, stdio: 'ignore', env });
   child.on('error', (err) => log('[project] start misslyckades', err.message));
   child.unref();
