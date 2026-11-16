@@ -1,7 +1,7 @@
 {
   "name": "claude-island",
   "productName": "Claude Island",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Dynamic Island-inspirerad statusbar för Claude-förbrukning",
   "main": "main.js",
   "private": true,

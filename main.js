@@ -310,7 +310,7 @@ function createTray() {
 ipcMain.on('menu', () => buildMenu().popup({ window: win }));
 
 /* ================= projekt =================
-   Projekt = undermappar i ~/Projects med .git, package.json eller pubspec.yaml. */
+   Projekt = alla icke-tomma, icke-dolda undermappar i projektmappen. */
 // Vald mapp i inställningarna, annars första vanliga projektmapp som finns.
 const ROOT_GUESSES = ['Projects', 'projects', 'source/repos', 'repos', 'dev', 'code', 'Code', 'Documents/GitHub', 'Documents/Projects']
   .map((p) => path.join(os.homedir(), p));
@@ -391,7 +391,8 @@ function allProjects() {
   projectCache = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => path.join(root, e.name))
-    .filter((d) => ['.git', 'package.json', 'pubspec.yaml'].some((f) => exists(path.join(d, f))))
+    // Alla mappar som inte är tomma räknas – projekt kan vara C#, Python, ren HTML osv.
+    .filter((d) => { try { return fs.readdirSync(d).length > 0; } catch { return false; } })
     .map((d) => ({
       name: path.basename(d).replace(/[-_]+/g, ' '),
       path: d,
