@@ -474,12 +474,15 @@ function openProject(dir) {
   const code = findVSCode();
   if (!code) { log('[project] hittar inte VS Code'); return false; }
   if (allProjects().some((x) => x.path === p.path)) ensureClaudeTask(p.path);
-  // Rensa Electron-variabler så att VS Code (också Electron) inte påverkas av vår miljö,
-  // och färgspärrar som ön kan ha ärvt (t.ex. NO_COLOR=1 om den startats från ett
-  // Claude Code-skal) – annars hamnar de i terminalen och Claude Code blir färglös.
-  const DROP = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI']);
-  const env = Object.fromEntries(Object.entries(process.env)
-    .filter(([k]) => !k.startsWith('ELECTRON_') && !DROP.has(k.toUpperCase())));
+  // Rensa Electron-variabler så att VS Code (också Electron) inte påverkas av vår miljö.
+  // Startas ön från ett Claude Code-skal ärver den också dess sessionsmarkörer
+  // (CLAUDE_CODE_CHILD_SESSION m.fl.) och NO_COLOR=1. Följer de med till terminalen
+  // blir Claude Code färglös och tror att den är en undersession utan transkript.
+  const DROP = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI', 'CLAUDECODE', 'AI_AGENT', 'CLAUDE_PID', 'CLAUDE_EFFORT']);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => {
+    const K = k.toUpperCase();
+    return !K.startsWith('ELECTRON_') && !K.startsWith('CLAUDE_CODE_') && !DROP.has(K);
+  }));
   const child = spawn(code, [p.path], { detached: true, stdio: 'ignore', env });
   child.on('error', (err) => log('[project] start misslyckades', err.message));
   child.unref();
