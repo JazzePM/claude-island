@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, dialog, shell, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage, dialog, shell, Notification, powerMonitor } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const http = require('http');
 const crypto = require('crypto');
 
@@ -108,6 +108,36 @@ async function push(force) {
   if (win && !win.isDestroyed()) win.webContents.send('usage', payload);
 }
 
+/* ---------- efter viloläge och nya inloggningar ---------- */
+// Nätverket är sällan uppe direkt när datorn vaknar, så försök några gånger.
+let wakeTimers = [];
+function refreshAfterWake(reason) {
+  log('[vakna]', reason);
+  wakeTimers.forEach(clearTimeout);
+  wakeTimers = [2, 10, 30, 90].map((sec) => setTimeout(async () => {
+    if (win && !win.isDestroyed()) placeWindow(); // skärmar kan ha ändrats
+    const res = await fetchUsage(true);
+    if (win && !win.isDestroyed()) win.webContents.send('usage', res);
+    if (!res.error) { wakeTimers.forEach(clearTimeout); wakeTimers = []; }
+  }, sec * 1000));
+}
+function watchWake() {
+  powerMonitor.on('resume', () => refreshAfterWake('resume'));
+  powerMonitor.on('unlock-screen', () => refreshAfterWake('unlock'));
+}
+
+// Claude Code förnyar inloggningen i .credentials.json. När filen ändras
+// hämtar ön direkt i stället för att vänta på nästa schemalagda hämtning.
+function watchCredentials() {
+  let last = 0;
+  fs.watchFile(CRED_PATH, { interval: 5000 }, (cur) => {
+    if (!cur.mtimeMs || cur.mtimeMs === last) return;
+    last = cur.mtimeMs;
+    log('[inloggning] ändrad, hämtar');
+    push(true);
+  });
+}
+
 function placeWindow() {
   // Lossad ö: använd sparad plats, om den fortfarande ligger på någon skärm.
   if (settings.detached && settings.pos) {
@@ -210,6 +240,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false, // timers ska gå även när ön är dold
     },
   });
 
@@ -467,6 +498,24 @@ function findVSCode() {
   return c.find(exists) || null;
 }
 
+// Namnen på miljövariabler som är permanent satta för användaren eller datorn.
+// Läses en gång vid start (reg.exe), så att filtret ovan kan skilja ärvda
+// sessionsvariabler från sådant som användaren själv har ställt in.
+const persistedEnv = new Set();
+function loadPersistedEnv() {
+  if (process.platform !== 'win32') return;
+  const keys = ['HKCU\\Environment', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment'];
+  for (const key of keys) {
+    execFile('reg.exe', ['query', key], { windowsHide: true }, (err, out) => {
+      if (err || !out) return;
+      for (const line of out.split(/\r?\n/)) {
+        const m = /^\s{4}(\S+)\s+REG_/.exec(line);
+        if (m) persistedEnv.add(m[1].toUpperCase());
+      }
+    });
+  }
+}
+
 function openProject(dir) {
   // Öppna bara mappar som finns i projektlistan eller som skickat en avisering.
   const p = allProjects().find((x) => x.path === dir) || notifiedProjects.get(dir);
@@ -478,10 +527,14 @@ function openProject(dir) {
   // Startas ön från ett Claude Code-skal ärver den också dess sessionsmarkörer
   // (CLAUDE_CODE_CHILD_SESSION m.fl.) och NO_COLOR=1. Följer de med till terminalen
   // blir Claude Code färglös och tror att den är en undersession utan transkript.
+  // Variabler som är permanent satta i Windows (t.ex. CLAUDE_CODE_GIT_BASH_PATH)
+  // är medvetna inställningar och får alltid följa med.
   const DROP = new Set(['NO_COLOR', 'FORCE_COLOR', 'CI', 'CLAUDECODE', 'AI_AGENT', 'CLAUDE_PID', 'CLAUDE_EFFORT']);
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => {
     const K = k.toUpperCase();
-    return !K.startsWith('ELECTRON_') && !K.startsWith('CLAUDE_CODE_') && !DROP.has(K);
+    if (K.startsWith('ELECTRON_')) return false;
+    if (persistedEnv.has(K)) return true;
+    return !K.startsWith('CLAUDE_CODE_') && !DROP.has(K);
   }));
   const child = spawn(code, [p.path], { detached: true, stdio: 'ignore', env });
   child.on('error', (err) => log('[project] start misslyckades', err.message));
@@ -741,6 +794,9 @@ if (!app.requestSingleInstanceLock() || isNotifyCall) {
     startHookServer().then(syncClaudeHooks);
     startFgHelper();
     setInterval(() => push(false), POLL_MS);
+    loadPersistedEnv();
+    watchWake();
+    watchCredentials();
   });
   app.on('second-instance', (_e, argv) => {
     if (!argv.includes('--notify')) restore(); // gamla --notify-anrop ignoreras
