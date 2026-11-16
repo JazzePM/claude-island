@@ -894,6 +894,26 @@
     if (bannerEv) openPending(bannerEv);
   });
 
+  // Ta bort notiser vars Claude Code-session inte längre lever (fönstret stängt).
+  // En notis behålls så länge dess egen session, eller någon session i samma
+  // projektmapp, fortfarande kör.
+  window.bridge.onLiveSessions((list) => {
+    const norm = (p) => String(p || '').toLowerCase().replace(/[\\/]+$/, '');
+    let changed = false;
+    for (const [key, ev] of pending) {
+      const proj = norm(ev.path);
+      const alive = list.some((s) =>
+        (ev.sessionId && s.sessionId === ev.sessionId) ||
+        (s.cwd && (norm(s.cwd) === proj || norm(s.cwd).startsWith(proj + '\\'))));
+      if (!alive) {
+        pending.delete(key);
+        if (bannerEv && bannerEv.path === key) endBanner();
+        changed = true;
+      }
+    }
+    if (changed) updatePendingUI();
+  });
+
   /* ================= projektvy ================= */
   let view = 'usage'; // 'usage' | 'picker'
   const DOCK_MAX = 8;

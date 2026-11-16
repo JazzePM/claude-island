@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('bridge', {
   setSelected: (paths) => ipcRenderer.invoke('set-selected', paths),
   onClaudeEvent: (cb) => ipcRenderer.on('claude-event', (_e, ev) => cb(ev)),
   onClaudeDismiss: (cb) => ipcRenderer.on('claude-dismiss', (_e, p) => cb(p)),
+  onLiveSessions: (cb) => ipcRenderer.on('live-sessions', (_e, list) => cb(list)),
   onUsage: (cb) => ipcRenderer.on('usage', (_e, p) => cb(p)),
   onCollapse: (cb) => ipcRenderer.on('collapse', () => cb()),
 });

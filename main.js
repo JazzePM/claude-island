@@ -108,6 +108,44 @@ async function push(force) {
   if (win && !win.isDestroyed()) win.webContents.send('usage', payload);
 }
 
+/* ---------- vilka Claude Code-sessioner lever? ----------
+   Claude Code skriver ~/.claude/sessions/<pid>.json för varje körande session
+   (pid, sessionId, cwd). Lever inte processen längre är sessionen stängd, t.ex.
+   för att VS Code-fönstret har stängts. Notiser för sådana sessioner tas bort. */
+const SESSIONS_DIR = path.join(os.homedir(), '.claude', 'sessions');
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (err) { return err.code === 'EPERM'; } // EPERM = finns, men tillhör någon annan
+}
+
+// Lista över levande sessioner, eller null om det inte går att avgöra
+// (då rensas ingenting, hellre en notis för mycket än en som försvinner fel).
+function liveSessions() {
+  let files;
+  try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => /^\d+\.json$/.test(f)); }
+  catch { return null; }
+  const out = [];
+  for (const f of files) {
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8'));
+      const pid = Number(j.pid);
+      if (!pid || !pidAlive(pid)) continue;
+      out.push({ sessionId: j.sessionId || null, cwd: j.cwd || null });
+    } catch {}
+  }
+  return out;
+}
+
+function watchSessions() {
+  const tick = () => {
+    const list = liveSessions();
+    if (list && win && !win.isDestroyed()) win.webContents.send('live-sessions', list);
+  };
+  setInterval(tick, 15 * 1000);
+  setTimeout(tick, 5 * 1000);
+}
+
 /* ---------- efter viloläge och nya inloggningar ---------- */
 // Nätverket är sällan uppe direkt när datorn vaknar, så försök några gånger.
 let wakeTimers = [];
@@ -656,7 +694,7 @@ async function handleNotify(type, cwd, payload = {}) {
     if (isProjectInFocus(title, p)) { log('[notify] i fokus, tyst', type, p.path); return; }
   }
   notifiedProjects.set(p.path, p);
-  const ev = { type, path: p.path, name: p.name, icon: p.icon, kind: p.kind, at: Date.now() };
+  const ev = { type, path: p.path, name: p.name, icon: p.icon, kind: p.kind, at: Date.now(), sessionId: payload.session_id || null };
   log('[notify]', type, p.path);
   if (win && !win.isDestroyed()) win.webContents.send('claude-event', ev);
 
@@ -797,6 +835,7 @@ if (!app.requestSingleInstanceLock() || isNotifyCall) {
     loadPersistedEnv();
     watchWake();
     watchCredentials();
+    watchSessions();
   });
   app.on('second-instance', (_e, argv) => {
     if (!argv.includes('--notify')) restore(); // gamla --notify-anrop ignoreras
