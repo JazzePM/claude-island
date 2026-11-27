@@ -291,11 +291,36 @@ function createWindow() {
   win.webContents.on('render-process-gone', (_e, d) => log('[gone]', JSON.stringify(d)));
   win.loadFile('index.html');
   win.once('ready-to-show', () => { if (!settings.minimized) win.showInactive(); });
-  win.on('blur', () => win.webContents.send('collapse'));
+  win.on('blur', () => { if (!win.isDestroyed()) win.webContents.send('collapse'); });
+}
 
-  screen.on('display-metrics-changed', placeWindow);
-  screen.on('display-added', placeWindow);
-  screen.on('display-removed', placeWindow);
+/* ---------- skärmbyten (docka/avdocka, lock, viloläge) ----------
+   Byter fönstret skärm med annan skalning (t.ex. laptop 125 % <-> extern 100 %)
+   medan datorn sover kan Electron fastna med fel DPI: fönstret får fel storlek
+   och Windows slutar visa det genomskinliga innehållet, fast det räknas som synligt.
+   Då hjälper bara ett nytt fönster. Vänta tills skärmarna har lugnat sig först. */
+let rebuildTimer = null;
+function rebuildWindowSoon(reason) {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => rebuildWindow(reason), 1500);
+}
+function rebuildWindow(reason) {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = null;
+  log('[window] bygger om fönstret:', reason);
+  const old = win;
+  createWindow(); // skapa det nya först, annars avslutas appen av window-all-closed
+  if (old && !old.isDestroyed()) old.destroy();
+}
+function watchDisplays() {
+  screen.on('display-added', () => rebuildWindowSoon('skärm ansluten'));
+  screen.on('display-removed', () => rebuildWindowSoon('skärm borttagen'));
+  screen.on('display-metrics-changed', (_e, _d, changed) => {
+    if (changed.includes('scaleFactor')) rebuildWindowSoon('skalning ändrad');
+    else placeWindow();
+  });
+  powerMonitor.on('resume', () => rebuildWindowSoon('vaknade'));
+  powerMonitor.on('unlock-screen', () => rebuildWindowSoon('upplåst'));
 }
 
 ipcMain.handle('get-usage', (_e, force) => fetchUsage(!!force));
@@ -317,10 +342,10 @@ function minimize() {
 }
 function restore() {
   if (!win) return;
-  placeWindow();
-  win.showInactive();
   settings.minimized = false;
   saveSettings();
+  // Ett nytt fönster varje gång: billigt, och räddar ön om det gamla har hamnat i fel DPI-läge.
+  rebuildWindow('visa ön');
 }
 const toggleIsland = () => (win && win.isVisible() ? minimize() : restore());
 
@@ -828,6 +853,7 @@ if (!app.requestSingleInstanceLock() || isNotifyCall) {
     }
     app.setAppUserModelId('com.jazzepm.claudeisland'); // krävs för Windows-aviseringar
     createWindow();
+    watchDisplays();
     createTray();
     startHookServer().then(syncClaudeHooks);
     startFgHelper();

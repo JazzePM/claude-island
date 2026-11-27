@@ -399,7 +399,7 @@
   const settled = (s) => Math.abs(s.x - s.to) < 0.05 && Math.abs(s.v) < 0.05;
 
   function frame(t) {
-    const dt = Math.min((t - lastT) / 1000 || 0, 1 / 30);
+    const dt = Math.min(Math.max((t - lastT) / 1000, 0) || 0, 1 / 30);
     lastT = t;
     // Små delsteg ger stabil fysik oavsett bildfrekvens.
     const n = Math.max(1, Math.ceil(dt / (1 / 240)));
@@ -418,11 +418,21 @@
   }
 
   const clamp01 = (n) => Math.max(0, Math.min(1, n));
+  // Bredd i hela skärmpixlar, med samma paritet (jämn/udda) som fönstret. Annars hamnar
+  // öns kanter och det centrerade innehållet på halva pixlar vid t.ex. 125 % skalning
+  // (900 px = 1125 skärmpixlar) och hoppar en pixel fram och tillbaka under animationen.
+  function snapWidth(w) {
+    const r = window.devicePixelRatio || 1;
+    let d = Math.round(w * r);
+    if ((d - Math.round(window.innerWidth * r)) % 2) d += w * r > d ? 1 : -1;
+    return d / r;
+  }
+  const snapPx = (v) => { const r = window.devicePixelRatio || 1; return Math.round(v * r) / r; };
   function paint() {
     // p: 0 = kompakt, 1 = helt öppen (kan översvänga lite). b: banner.
     const p = O.x, b = B.x;
-    islandEl.style.width = W.x + 'px';
-    islandEl.style.height = H.x + 'px';
+    islandEl.style.width = snapWidth(W.x) + 'px';
+    islandEl.style.height = snapPx(H.x) + 'px';
     islandEl.style.borderRadius = (H.x / 2 + (30 - H.x / 2) * clamp01(p)) + 'px';
 
     // Kompakt innehåll försvinner tidigt och suddas ut.
